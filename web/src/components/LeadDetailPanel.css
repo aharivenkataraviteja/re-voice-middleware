@@ -1,0 +1,143 @@
+.detail-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(25, 27, 30, 0.35);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 50;
+}
+
+.detail-panel {
+  width: min(420px, 100%);
+  height: 100%;
+  background: var(--paper-card);
+  border-left: 1px solid var(--line);
+  padding: 2rem 1.6rem;
+  overflow-y: auto;
+  position: relative;
+}
+
+.detail-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+
+.detail-name {
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  margin: 0 0 0.2rem 0;
+}
+
+.detail-meta {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  margin-bottom: 1.3rem;
+}
+
+.detail-controls {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.8rem;
+}
+
+.detail-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.detail-field select {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.detail-section-title {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-soft);
+  margin: 1.5rem 0 0.6rem 0;
+}
+
+.timeline {
+  position: relative;
+  margin-left: 0.4rem;
+  padding-left: 1.4rem;
+}
+
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 0.25rem;
+  top: 0.3rem;
+  bottom: 0.3rem;
+  width: 1px;
+  background: var(--line);
+}
+
+.t-node {
+  position: relative;
+  padding-bottom: 1rem;
+}
+
+.t-node::before {
+  content: "";
+  position: absolute;
+  left: -1.4rem;
+  top: 0.25rem;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.t-node.pending::before {
+  background: var(--paper-dim);
+  border: 1px solid var(--line);
+}
+
+.t-date {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+}
+
+.t-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.t-node.pending .t-label {
+  color: var(--ink-soft);
+  font-weight: 400;
+  font-style: italic;
+}
+
+.call-row {
+  border-top: 1px solid var(--line);
+  padding: 0.6rem 0;
+  font-size: 0.88rem;
+}
+
+.call-row a {
+  color: var(--accent);
+  font-size: 0.82rem;
+}

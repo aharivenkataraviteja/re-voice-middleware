@@ -43,6 +43,10 @@ export const tenants = pgTable("tenants", {
   status: text("status").notNull().default("active"),
   planTier: text("plan_tier").notNull().default("starter"),
   primaryContactEmail: text("primary_contact_email").notNull(),
+  // Small, free-form settings bag (availability/business-hours for now) so
+  // Calendar's "set availability" action has somewhere real to persist to,
+  // without a dedicated table for what is currently a single small object.
+  settings: jsonb("settings"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

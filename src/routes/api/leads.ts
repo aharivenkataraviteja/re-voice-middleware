@@ -1,45 +1,81 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, and, or, ilike, desc } from "drizzle-orm";
+import { eq, and, or, ilike, desc, sql } from "drizzle-orm";
 import { requireAuth } from "../../middleware/auth";
 import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
+import { paginationSchema } from "../../lib/pagination";
 
 export const leadsRouter = Router();
 
-leadsRouter.use(requireAuth);
+// requireAuth is applied per-route below, not via a blanket router.use() —
+// a path-less router.use() runs for every request that reaches this router
+// regardless of which route (if any) ultimately matches, which previously
+// caused a real bug: a different router's blanket role-gate intercepted
+// requests meant for routers mounted after it. Explicit per-route middleware
+// can't leak across routers no matter the mount order.
 
 function isPrivileged(role: string) {
   return role === "admin" || role === "manager";
 }
 
-leadsRouter.get("/api/v1/leads", async (req, res, next) => {
+const listLeadsQuerySchema = paginationSchema.extend({
+  stage: z.enum(["hot", "warm", "cold", "past_client"]).optional(),
+  assignedAgentId: z.string().uuid().optional(),
+  search: z.string().max(200).optional(),
+});
+
+leadsRouter.get("/api/v1/leads", requireAuth, async (req, res, next) => {
   try {
-    const { stage, search } = req.query as { stage?: string; search?: string };
-    const leads = await withTenant(req.user!.tenantId, async (tx) => {
+    const parsed = listLeadsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_query", code: "BAD_REQUEST" });
+    }
+    const { stage, search, assignedAgentId, limit, offset } = parsed.data;
+    const privileged = isPrivileged(req.user!.role);
+
+    const result = await withTenant(req.user!.tenantId, async (tx) => {
       const conditions = [] as any[];
-      if (stage) conditions.push(eq(schema.leads.stage, stage as any));
-      if (!isPrivileged(req.user!.role)) {
+      if (stage) conditions.push(eq(schema.leads.stage, stage));
+      if (!privileged) {
         conditions.push(eq(schema.leads.assignedAgentId, req.user!.sub));
+      } else if (assignedAgentId) {
+        conditions.push(eq(schema.leads.assignedAgentId, assignedAgentId));
       }
       if (search) {
         conditions.push(
           or(ilike(schema.leads.callerName, `%${search}%`), ilike(schema.leads.phone, `%${search}%`))
         );
       }
-      return tx
+      const whereClause = conditions.length ? and(...conditions) : undefined;
+
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.leads)
+        .where(whereClause);
+
+      const leads = await tx
         .select()
         .from(schema.leads)
-        .where(conditions.length ? and(...conditions) : undefined)
-        .orderBy(desc(schema.leads.updatedAt));
+        .where(whereClause)
+        .orderBy(desc(schema.leads.updatedAt))
+        .limit(limit)
+        .offset(offset);
+
+      return { leads, count };
     });
-    res.status(200).json({ leads });
+
+    res.status(200).json({
+      leads: result.leads,
+      total: result.count,
+      hasMore: offset + result.leads.length < result.count,
+    });
   } catch (err) {
     next(err);
   }
 });
 
-leadsRouter.get("/api/v1/leads/:id", async (req, res, next) => {
+leadsRouter.get("/api/v1/leads/:id", requireAuth, async (req, res, next) => {
   try {
     const result = await withTenant(req.user!.tenantId, async (tx) => {
       const [lead] = await tx.select().from(schema.leads).where(eq(schema.leads.id, req.params.id));
@@ -81,7 +117,7 @@ const patchLeadSchema = z.object({
   email: z.string().email().optional(),
 });
 
-leadsRouter.patch("/api/v1/leads/:id", async (req, res, next) => {
+leadsRouter.patch("/api/v1/leads/:id", requireAuth, async (req, res, next) => {
   try {
     const parsed = patchLeadSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -118,7 +154,7 @@ const createLeadSchema = z.object({
   assignedAgentId: z.string().uuid().optional(),
 });
 
-leadsRouter.post("/api/v1/leads", async (req, res, next) => {
+leadsRouter.post("/api/v1/leads", requireAuth, async (req, res, next) => {
   try {
     const parsed = createLeadSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -143,7 +179,7 @@ const timelineEventSchema = z.object({
   notes: z.string().optional(),
 });
 
-leadsRouter.post("/api/v1/leads/:id/timeline", async (req, res, next) => {
+leadsRouter.post("/api/v1/leads/:id/timeline", requireAuth, async (req, res, next) => {
   try {
     const parsed = timelineEventSchema.safeParse(req.body);
     if (!parsed.success) {

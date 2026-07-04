@@ -98,8 +98,21 @@ authRouter.post("/api/v1/auth/refresh", async (req, res) => {
   }
 });
 
-authRouter.get("/api/v1/auth/me", requireAuth, (req, res) => {
-  res.status(200).json({ userId: req.user!.sub, tenantId: req.user!.tenantId, role: req.user!.role });
+authRouter.get("/api/v1/auth/me", requireAuth, async (req, res, next) => {
+  try {
+    const fullName = await withTenant(req.user!.tenantId, async (tx) => {
+      const rows = await tx.execute(sql`select full_name from users where id = ${req.user!.sub}`);
+      return (rows as unknown as Array<{ full_name: string | null }>)[0]?.full_name ?? null;
+    });
+    res.status(200).json({
+      userId: req.user!.sub,
+      tenantId: req.user!.tenantId,
+      role: req.user!.role,
+      fullName,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 authRouter.post("/api/v1/auth/logout", (_req, res) => {

@@ -6,8 +6,6 @@ import * as schema from "../../db/schema";
 
 export const callsRouter = Router();
 
-callsRouter.use(requireAuth);
-
 function isPrivileged(role: string) {
   return role === "admin" || role === "manager";
 }
@@ -24,7 +22,7 @@ async function loadCallScoped(tenantId: string, callId: string, userId: string, 
   });
 }
 
-callsRouter.get("/api/v1/calls/:id", async (req, res, next) => {
+callsRouter.get("/api/v1/calls/:id", requireAuth, async (req, res, next) => {
   try {
     const result = await loadCallScoped(req.user!.tenantId, req.params.id, req.user!.sub, req.user!.role);
     if (result === null) return res.status(404).json({ error: "not_found", code: "NOT_FOUND" });
@@ -39,7 +37,7 @@ callsRouter.get("/api/v1/calls/:id", async (req, res, next) => {
 // through our own storage — see System Architecture: no new object storage
 // in Release 1.0). This just resolves it after the same access check as
 // the call detail endpoint, rather than exposing recordings unauthenticated.
-callsRouter.get("/api/v1/calls/:id/recording", async (req, res, next) => {
+callsRouter.get("/api/v1/calls/:id/recording", requireAuth, async (req, res, next) => {
   try {
     const result = await loadCallScoped(req.user!.tenantId, req.params.id, req.user!.sub, req.user!.role);
     if (result === null) return res.status(404).json({ error: "not_found", code: "NOT_FOUND" });

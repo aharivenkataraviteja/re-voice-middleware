@@ -7,11 +7,13 @@ import { computeWeeklyMetrics, narrateMetrics } from "../../services/coachServic
 
 export const analyticsRouter = Router();
 
-analyticsRouter.use(requireAuth);
-// Brokerage-wide analytics are admin/manager only — an agent doesn't see
-// other agents' numbers or brokerage-wide $ figures, matching the frozen
-// Switchboard V2 role-visibility design.
-analyticsRouter.use(requireRole("admin", "manager"));
+// requireAuth/requireRole are applied per-route, not via router.use() — a
+// path-less router.use() previously caused a real bug where this router's
+// blanket role gate intercepted requests meant for routers mounted after it
+// (e.g. an agent's request to /api/v1/users was wrongly rejected here
+// before ever reaching usersRouter). Brokerage-wide analytics are
+// admin/manager only — an agent doesn't see other agents' numbers or
+// brokerage-wide $ figures, matching the frozen Switchboard V2 design.
 
 function startOfWeek(): Date {
   const d = new Date();
@@ -21,7 +23,7 @@ function startOfWeek(): Date {
   return d;
 }
 
-analyticsRouter.get("/api/v1/analytics/summary", async (req, res, next) => {
+analyticsRouter.get("/api/v1/analytics/summary", requireAuth, requireRole("admin", "manager"), async (req, res, next) => {
   try {
     const summary = await withTenant(req.user!.tenantId, async (tx) => {
       const totalCalls = await tx.select({ count: sql<number>`count(*)::int` }).from(schema.calls);
@@ -50,13 +52,13 @@ analyticsRouter.get("/api/v1/analytics/summary", async (req, res, next) => {
         avgCallDurationSeconds: avgDuration[0]?.avg ? Math.round(Number(avgDuration[0].avg)) : null,
       };
     });
-    res.status(200).json(summary);
+    res.status(200).json({ summary });
   } catch (err) {
     next(err);
   }
 });
 
-analyticsRouter.get("/api/v1/analytics/leaderboard", async (req, res, next) => {
+analyticsRouter.get("/api/v1/analytics/leaderboard", requireAuth, requireRole("admin", "manager"), async (req, res, next) => {
   try {
     const rows = await withTenant(req.user!.tenantId, async (tx) => {
       return tx
@@ -75,7 +77,7 @@ analyticsRouter.get("/api/v1/analytics/leaderboard", async (req, res, next) => {
   }
 });
 
-analyticsRouter.get("/api/v1/analytics/coach-note", async (req, res, next) => {
+analyticsRouter.get("/api/v1/analytics/coach-note", requireAuth, requireRole("admin", "manager"), async (req, res, next) => {
   try {
     const note = await withTenant(req.user!.tenantId, async (tx) => {
       const [latest] = await tx
@@ -91,7 +93,7 @@ analyticsRouter.get("/api/v1/analytics/coach-note", async (req, res, next) => {
   }
 });
 
-analyticsRouter.post("/api/v1/analytics/coach-note/generate", requireRole("admin"), async (req, res, next) => {
+analyticsRouter.post("/api/v1/analytics/coach-note/generate", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
     const weekStart = startOfWeek();
     const note = await withTenant(req.user!.tenantId, async (tx) => {
@@ -118,6 +120,7 @@ analyticsRouter.post("/api/v1/analytics/coach-note/generate", requireRole("admin
 
 analyticsRouter.patch(
   "/api/v1/analytics/coach-note/:id/approve",
+  requireAuth,
   requireRole("admin"),
   async (req, res, next) => {
     try {

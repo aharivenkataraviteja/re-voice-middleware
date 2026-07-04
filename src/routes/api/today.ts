@@ -6,8 +6,6 @@ import * as schema from "../../db/schema";
 
 export const todayRouter = Router();
 
-todayRouter.use(requireAuth);
-
 function isPrivileged(role: string) {
   return role === "admin" || role === "manager";
 }
@@ -17,7 +15,7 @@ function isPrivileged(role: string) {
 // guarantee of booked revenue — the frontend must always label them as such.
 const ASSUMED_COMMISSION_RATE = 0.025;
 
-todayRouter.get("/api/v1/today", async (req, res, next) => {
+todayRouter.get("/api/v1/today", requireAuth, async (req, res, next) => {
   try {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);

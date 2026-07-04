@@ -21,6 +21,7 @@ import { tasksRouter } from "./routes/api/tasks";
 import { todayRouter } from "./routes/api/today";
 import { analyticsRouter } from "./routes/api/analytics";
 import { callsRouter } from "./routes/api/calls";
+import { usersRouter } from "./routes/api/users";
 
 const app = express();
 
@@ -70,6 +71,7 @@ app.use(tasksRouter);
 app.use(todayRouter);
 app.use(analyticsRouter);
 app.use(callsRouter);
+app.use(usersRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

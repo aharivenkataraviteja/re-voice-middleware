@@ -1,35 +1,60 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, and, gte, lte } from "drizzle-orm";
-import { requireAuth } from "../../middleware/auth";
+import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { requireAuth, requireRole } from "../../middleware/auth";
 import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
+import { paginationSchema } from "../../lib/pagination";
 
 export const appointmentsRouter = Router();
-
-appointmentsRouter.use(requireAuth);
 
 function isPrivileged(role: string) {
   return role === "admin" || role === "manager";
 }
 
-appointmentsRouter.get("/api/v1/appointments", async (req, res, next) => {
+const listAppointmentsQuerySchema = paginationSchema.extend({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+});
+
+appointmentsRouter.get("/api/v1/appointments", requireAuth, async (req, res, next) => {
   try {
-    const { from, to } = req.query as { from?: string; to?: string };
-    const appointments = await withTenant(req.user!.tenantId, async (tx) => {
+    const parsed = listAppointmentsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_query", code: "BAD_REQUEST" });
+    }
+    const { from, to, limit, offset } = parsed.data;
+
+    const result = await withTenant(req.user!.tenantId, async (tx) => {
       const conditions = [] as any[];
       if (!isPrivileged(req.user!.role)) {
         conditions.push(eq(schema.appointments.agentId, req.user!.sub));
       }
       if (from) conditions.push(gte(schema.appointments.slotStart, new Date(from)));
       if (to) conditions.push(lte(schema.appointments.slotStart, new Date(to)));
-      return tx
+      const whereClause = conditions.length ? and(...conditions) : undefined;
+
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.appointments)
+        .where(whereClause);
+
+      const appointments = await tx
         .select()
         .from(schema.appointments)
-        .where(conditions.length ? and(...conditions) : undefined)
-        .orderBy(schema.appointments.slotStart);
+        .where(whereClause)
+        .orderBy(schema.appointments.slotStart)
+        .limit(limit)
+        .offset(offset);
+
+      return { appointments, count };
     });
-    res.status(200).json({ appointments });
+
+    res.status(200).json({
+      appointments: result.appointments,
+      total: result.count,
+      hasMore: offset + result.appointments.length < result.count,
+    });
   } catch (err) {
     next(err);
   }
@@ -41,7 +66,7 @@ const patchAppointmentSchema = z.object({
   notes: z.string().optional(),
 });
 
-appointmentsRouter.patch("/api/v1/appointments/:id", async (req, res, next) => {
+appointmentsRouter.patch("/api/v1/appointments/:id", requireAuth, async (req, res, next) => {
   try {
     const parsed = patchAppointmentSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -75,15 +100,60 @@ appointmentsRouter.patch("/api/v1/appointments/:id", async (req, res, next) => {
   }
 });
 
-// Release 1.0: fixed business-hours availability, no per-agent calendar
-// integration yet (that's backlog, module 4's Google/Outlook sync). This is
-// enough for check_calendar_availability's mock slots and the Calendar
-// screen's "set availability" placeholder.
-appointmentsRouter.get("/api/v1/availability", async (req, res) => {
-  res.status(200).json({
-    timezone: "America/New_York",
-    businessHours: { start: "09:00", end: "18:00", days: [1, 2, 3, 4, 5] },
-    bufferMinutes: 15,
-    maxPerDay: 3,
-  });
+const DEFAULT_AVAILABILITY = {
+  timezone: "America/New_York",
+  businessHours: { start: "09:00", end: "18:00", days: [1, 2, 3, 4, 5] },
+  bufferMinutes: 15,
+  maxPerDay: 3,
+};
+
+const availabilitySchema = z.object({
+  timezone: z.string().optional(),
+  businessHours: z.object({ start: z.string(), end: z.string(), days: z.array(z.number().int().min(0).max(6)) }).optional(),
+  bufferMinutes: z.number().int().min(0).optional(),
+  maxPerDay: z.number().int().min(1).optional(),
+});
+
+// Release 1.0: one shared availability config per tenant (stored on
+// tenants.settings), not per-agent yet — real per-agent calendars and
+// external Google/Outlook sync are backlog (module 4's future note).
+appointmentsRouter.get("/api/v1/availability", requireAuth, async (req, res, next) => {
+  try {
+    const settings = await withTenant(req.user!.tenantId, async (tx) => {
+      const [tenant] = await tx
+        .select({ settings: schema.tenants.settings })
+        .from(schema.tenants)
+        .where(eq(schema.tenants.id, req.user!.tenantId));
+      return tenant?.settings as { availability?: typeof DEFAULT_AVAILABILITY } | undefined;
+    });
+    res.status(200).json(settings?.availability ?? DEFAULT_AVAILABILITY);
+  } catch (err) {
+    next(err);
+  }
+});
+
+appointmentsRouter.patch("/api/v1/availability", requireAuth, requireRole("admin"), async (req, res, next) => {
+  try {
+    const parsed = availabilitySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_request", code: "BAD_REQUEST" });
+    }
+    const updated = await withTenant(req.user!.tenantId, async (tx) => {
+      const [tenant] = await tx
+        .select({ settings: schema.tenants.settings })
+        .from(schema.tenants)
+        .where(eq(schema.tenants.id, req.user!.tenantId));
+      const currentAvailability = (tenant?.settings as any)?.availability ?? DEFAULT_AVAILABILITY;
+      const nextAvailability = { ...currentAvailability, ...parsed.data };
+      const nextSettings = { ...(tenant?.settings as object | undefined), availability: nextAvailability };
+      await tx
+        .update(schema.tenants)
+        .set({ settings: nextSettings })
+        .where(eq(schema.tenants.id, req.user!.tenantId));
+      return nextAvailability;
+    });
+    res.status(200).json(updated);
+  } catch (err) {
+    next(err);
+  }
 });

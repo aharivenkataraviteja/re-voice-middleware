@@ -10,6 +10,10 @@ import type {
   AppointmentsResponse,
   Appointment,
   UsersResponse,
+  CallsResponse,
+  AnalyticsSummary,
+  LeaderboardRow,
+  CoachNote,
 } from "./types";
 
 // Short staleTime on Today's Work — the one screen that's meant to feel
@@ -146,5 +150,57 @@ export function useUsers() {
     queryKey: ["users"],
     queryFn: () => api.get<UsersResponse>("/api/v1/users"),
     staleTime: 5 * 60_000,
+  });
+}
+
+export function useCalls(params: { limit?: number; offset?: number } = {}) {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set("limit", String(params.limit));
+  if (params.offset) qs.set("offset", String(params.offset));
+  const query = qs.toString();
+  return useQuery({
+    queryKey: ["calls", params],
+    queryFn: () => api.get<CallsResponse>(`/api/v1/calls${query ? `?${query}` : ""}`),
+    staleTime: 30_000,
+  });
+}
+
+export function useAnalyticsSummary() {
+  return useQuery({
+    queryKey: ["analytics", "summary"],
+    queryFn: () => api.get<{ summary: AnalyticsSummary }>("/api/v1/analytics/summary"),
+    staleTime: 60_000,
+  });
+}
+
+export function useLeaderboard() {
+  return useQuery({
+    queryKey: ["analytics", "leaderboard"],
+    queryFn: () => api.get<{ leaderboard: LeaderboardRow[] }>("/api/v1/analytics/leaderboard"),
+    staleTime: 60_000,
+  });
+}
+
+export function useCoachNote() {
+  return useQuery({
+    queryKey: ["analytics", "coach-note"],
+    queryFn: () => api.get<{ note: CoachNote | null }>("/api/v1/analytics/coach-note"),
+    staleTime: 60_000,
+  });
+}
+
+export function useGenerateCoachNote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ note: CoachNote }>("/api/v1/analytics/coach-note/generate"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["analytics", "coach-note"] }),
+  });
+}
+
+export function useApproveCoachNote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.patch<{ note: CoachNote }>(`/api/v1/analytics/coach-note/${id}/approve`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["analytics", "coach-note"] }),
   });
 }

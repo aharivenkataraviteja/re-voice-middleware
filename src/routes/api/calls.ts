@@ -1,14 +1,71 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { requireAuth } from "../../middleware/auth";
 import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
+import { paginationSchema } from "../../lib/pagination";
 
 export const callsRouter = Router();
 
 function isPrivileged(role: string) {
   return role === "admin" || role === "manager";
 }
+
+// Insights needs a way to browse calls/recordings, not just look one up by
+// ID — this was missing entirely until the frontend readiness review for
+// M7 caught it. Agents only see calls tied to their own assigned leads;
+// admin/manager see every call in the tenant.
+callsRouter.get("/api/v1/calls", requireAuth, async (req, res, next) => {
+  try {
+    const parsed = paginationSchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_query", code: "BAD_REQUEST" });
+    }
+    const { limit, offset } = parsed.data;
+    const privileged = isPrivileged(req.user!.role);
+
+    const result = await withTenant(req.user!.tenantId, async (tx) => {
+      let leadIdFilter: string[] | null = null;
+      if (!privileged) {
+        const ownLeads = await tx
+          .select({ id: schema.leads.id })
+          .from(schema.leads)
+          .where(eq(schema.leads.assignedAgentId, req.user!.sub));
+        leadIdFilter = ownLeads.map((l) => l.id);
+      }
+
+      const whereClause =
+        leadIdFilter !== null
+          ? leadIdFilter.length > 0
+            ? sql`${schema.calls.leadId} in ${leadIdFilter}`
+            : sql`false`
+          : undefined;
+
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.calls)
+        .where(whereClause);
+
+      const calls = await tx
+        .select()
+        .from(schema.calls)
+        .where(whereClause)
+        .orderBy(desc(schema.calls.startedAt))
+        .limit(limit)
+        .offset(offset);
+
+      return { calls, count };
+    });
+
+    res.status(200).json({
+      calls: result.calls,
+      total: result.count,
+      hasMore: offset + result.calls.length < result.count,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 async function loadCallScoped(tenantId: string, callId: string, userId: string, role: string) {
   return withTenant(tenantId, async (tx) => {

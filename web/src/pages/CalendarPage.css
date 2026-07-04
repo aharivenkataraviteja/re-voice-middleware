@@ -1,0 +1,85 @@
+.calendar-day {
+  margin-bottom: 1.8rem;
+}
+
+.appt-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid var(--line);
+  background: var(--paper-card);
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.4rem;
+  border-radius: 4px;
+}
+
+.appt-time {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  width: 5.5rem;
+  flex-shrink: 0;
+}
+
+.appt-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.appt-title {
+  font-weight: 500;
+}
+
+.appt-format {
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.appt-sub {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  margin-top: 0.1rem;
+}
+
+.appt-status-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.status-chip {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.status-confirmed {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.status-completed {
+  background: #e1ead9;
+  color: var(--good);
+}
+
+.status-no_show,
+.status-cancelled {
+  background: var(--critical-soft);
+  color: var(--critical);
+}
+
+@media (max-width: 640px) {
+  .appt-row {
+    flex-wrap: wrap;
+  }
+  .appt-status-col {
+    align-items: flex-start;
+    width: 100%;
+  }
+}

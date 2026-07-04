@@ -108,3 +108,28 @@ export type LeadsResponse = { leads: Lead[]; total: number; hasMore: boolean };
 export type TasksResponse = { tasks: Task[]; total: number; hasMore: boolean };
 export type AppointmentsResponse = { appointments: Appointment[]; total: number; hasMore: boolean };
 export type UsersResponse = { users: User[] };
+export type CallsResponse = { calls: Call[]; total: number; hasMore: boolean };
+
+export interface AnalyticsSummary {
+  totalCalls: number;
+  totalAppointments: number;
+  leadsByStage: Record<string, number>;
+  objectionsByType: Record<string, number>;
+  avgCallDurationSeconds: number | null;
+}
+
+export interface LeaderboardRow {
+  agentId: string | null;
+  appointmentCount: number;
+}
+
+export interface CoachNote {
+  id: string;
+  tenantId: string;
+  weekStart: string;
+  content: string;
+  metrics: unknown;
+  approved: boolean;
+  generatedBy: "llm" | "template";
+  createdAt: string;
+}

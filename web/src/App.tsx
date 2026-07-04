@@ -5,7 +5,8 @@ import { AppShell } from "./components/AppShell";
 import { LoginPage } from "./pages/LoginPage";
 import { TodaysWorkPage } from "./pages/TodaysWorkPage";
 import { PipelinePage } from "./pages/PipelinePage";
-import { ComingSoonPage } from "./pages/ComingSoonPage";
+import { CalendarPage } from "./pages/CalendarPage";
+import { InsightsPage } from "./pages/InsightsPage";
 
 function App() {
   return (
@@ -18,8 +19,8 @@ function App() {
               <Route index element={<Navigate to="/today" replace />} />
               <Route path="today" element={<TodaysWorkPage />} />
               <Route path="pipeline" element={<PipelinePage />} />
-              <Route path="calendar" element={<ComingSoonPage title="Calendar" />} />
-              <Route path="insights" element={<ComingSoonPage title="Insights" />} />
+              <Route path="calendar" element={<CalendarPage />} />
+              <Route path="insights" element={<InsightsPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/today" replace />} />

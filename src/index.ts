@@ -1,6 +1,7 @@
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { config } from "./config";
 import { rateLimiter } from "./middleware/rateLimit";
 import { requestLogger } from "./middleware/requestLogger";
@@ -13,6 +14,13 @@ import { marketRouter } from "./routes/tools/market";
 import { smsRouter } from "./routes/tools/sms";
 import { crmRouter } from "./routes/tools/crm";
 import { transferRouter } from "./routes/tools/transfer";
+import { authRouter } from "./routes/api/auth";
+import { leadsRouter } from "./routes/api/leads";
+import { appointmentsRouter } from "./routes/api/appointments";
+import { tasksRouter } from "./routes/api/tasks";
+import { todayRouter } from "./routes/api/today";
+import { analyticsRouter } from "./routes/api/analytics";
+import { callsRouter } from "./routes/api/calls";
 
 const app = express();
 
@@ -27,9 +35,12 @@ const isDev = config.nodeEnv !== "production";
 app.use(
   cors({
     origin: isDev ? /^http:\/\/localhost(:\d+)?$/ : false,
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PATCH", "DELETE"],
+    credentials: true,
   })
 );
+
+app.use(cookieParser());
 
 // Capture the raw body for HMAC verification before JSON parsing discards it.
 app.use(
@@ -52,6 +63,13 @@ app.use(marketRouter);
 app.use(smsRouter);
 app.use(crmRouter);
 app.use(transferRouter);
+app.use(authRouter);
+app.use(leadsRouter);
+app.use(appointmentsRouter);
+app.use(tasksRouter);
+app.use(todayRouter);
+app.use(analyticsRouter);
+app.use(callsRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

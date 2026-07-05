@@ -108,6 +108,7 @@ export const calls = pgTable(
     vapiCallId: text("vapi_call_id").notNull(),
     durationSeconds: integer("duration_seconds"),
     outcome: text("outcome"),
+    endedReason: text("ended_reason"),
     objectionType: text("objection_type"),
     sentiment: text("sentiment"),
     recordingUrl: text("recording_url"),

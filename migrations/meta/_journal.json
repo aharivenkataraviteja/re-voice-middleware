@@ -64,6 +64,13 @@
       "when": 1783189182706,
       "tag": "0008_wakeful_sister_grimm",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783261390911,
+      "tag": "0009_lying_maggott",
+      "breakpoints": true
     }
   ]
 }

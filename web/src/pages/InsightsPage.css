@@ -115,12 +115,15 @@
 }
 
 .call-row {
-  display: flex;
-  gap: 1rem;
   border: 1px solid var(--line);
   background: var(--paper-card);
   padding: 0.8rem 1rem;
   border-radius: 4px;
+}
+
+.call-row-main {
+  display: flex;
+  gap: 1rem;
 }
 
 .call-time {
@@ -175,7 +178,7 @@
   .stat-tiles {
     grid-template-columns: 1fr;
   }
-  .call-row {
+  .call-row-main {
     flex-wrap: wrap;
   }
   .call-time {

@@ -1,0 +1,14 @@
+.call-detail-meta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  margin-bottom: 1rem;
+}
+
+.call-detail-summary {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  max-width: 60ch;
+}

@@ -11,6 +11,7 @@ import type {
   Appointment,
   UsersResponse,
   CallsResponse,
+  Call,
   AnalyticsSummary,
   LeaderboardRow,
   CoachNote,
@@ -162,6 +163,14 @@ export function useCalls(params: { limit?: number; offset?: number } = {}) {
     queryKey: ["calls", params],
     queryFn: () => api.get<CallsResponse>(`/api/v1/calls${query ? `?${query}` : ""}`),
     staleTime: 30_000,
+  });
+}
+
+export function useCall(id: string | null) {
+  return useQuery({
+    queryKey: ["calls", "detail", id],
+    queryFn: () => api.get<{ call: Call }>(`/api/v1/calls/${id}`),
+    enabled: !!id,
   });
 }
 

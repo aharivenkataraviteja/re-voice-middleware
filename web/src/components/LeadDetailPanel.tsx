@@ -1,5 +1,7 @@
+import { Link } from "react-router-dom";
 import { useLead, useUpdateLead, useUsers } from "../api/hooks";
 import type { LeadStage } from "../api/types";
+import { PlayRecordingToggle } from "./CallRecording";
 import "./LeadDetailPanel.css";
 
 const STAGES: LeadStage[] = ["hot", "warm", "cold", "past_client"];
@@ -85,12 +87,11 @@ export function LeadDetailPanel({ leadId, onClose }: { leadId: string; onClose: 
             ) : (
               data.calls.map((call) => (
                 <div key={call.id} className="call-row">
-                  <div>{call.summaryText || "No summary available"}</div>
-                  {call.recordingUrl && (
-                    <a href={call.recordingUrl} target="_blank" rel="noreferrer">
-                      Play recording
-                    </a>
-                  )}
+                  <div className="call-row-top">
+                    <div>{call.summaryText || "No summary available"}</div>
+                    <Link to={`/calls/${call.id}`}>View details</Link>
+                  </div>
+                  <PlayRecordingToggle call={call} />
                 </div>
               ))
             )}

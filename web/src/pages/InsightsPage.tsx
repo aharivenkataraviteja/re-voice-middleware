@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import {
   useAnalyticsSummary,
   useLeaderboard,
@@ -8,6 +9,7 @@ import {
 } from "../api/hooks";
 import { useUserNameLookup } from "../api/useUserName";
 import { useAuth } from "../auth/AuthContext";
+import { PlayRecordingToggle } from "../components/CallRecording";
 import "./InsightsPage.css";
 
 function formatDuration(seconds: number | null) {
@@ -184,24 +186,25 @@ function CallsSection() {
         <div className="calls-list">
           {data.calls.map((call) => (
             <div className="call-row" key={call.id}>
-              <div className="call-time">
-                {call.startedAt ? new Date(call.startedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—"}
-              </div>
-              <div className="call-body">
-                <div className="call-title">
-                  {call.outcome ? formatLabel(call.outcome) : "Call"}
-                  {call.sentiment && <span className="call-sentiment"> · {formatLabel(call.sentiment)}</span>}
+              <div className="call-row-main">
+                <div className="call-time">
+                  {call.startedAt ? new Date(call.startedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—"}
                 </div>
-                {call.summaryText && <div className="call-summary">{call.summaryText}</div>}
+                <div className="call-body">
+                  <div className="call-title">
+                    {call.outcome ? formatLabel(call.outcome) : "Call"}
+                    {call.sentiment && <span className="call-sentiment"> · {formatLabel(call.sentiment)}</span>}
+                  </div>
+                  {call.summaryText && <div className="call-summary">{call.summaryText}</div>}
+                </div>
+                <div className="call-side">
+                  <div className="call-duration">{formatDuration(call.durationSeconds)}</div>
+                  <Link className="link-btn" to={`/calls/${call.id}`}>
+                    View details
+                  </Link>
+                </div>
               </div>
-              <div className="call-side">
-                <div className="call-duration">{formatDuration(call.durationSeconds)}</div>
-                {call.recordingUrl && (
-                  <a className="link-btn" href={call.recordingUrl} target="_blank" rel="noreferrer">
-                    Recording
-                  </a>
-                )}
-              </div>
+              <PlayRecordingToggle call={call} />
             </div>
           ))}
         </div>

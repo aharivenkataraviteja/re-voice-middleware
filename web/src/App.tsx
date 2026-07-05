@@ -7,6 +7,7 @@ import { TodaysWorkPage } from "./pages/TodaysWorkPage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { InsightsPage } from "./pages/InsightsPage";
+import { CallDetailPage } from "./pages/CallDetailPage";
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
               <Route path="pipeline" element={<PipelinePage />} />
               <Route path="calendar" element={<CalendarPage />} />
               <Route path="insights" element={<InsightsPage />} />
+              <Route path="calls/:id" element={<CallDetailPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/today" replace />} />

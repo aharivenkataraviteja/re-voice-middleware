@@ -85,3 +85,70 @@ calendarRouter.post(
     }
   }
 );
+
+// Fallback when check_calendar_availability (or book_appointment) fails,
+// times out, or otherwise can't return real scheduling options. Alex is
+// instructed (see vapi_system_prompt.md, CALENDAR FAILURE FALLBACK) to
+// collect minimum callback details instead of leaving the caller stuck, and
+// call this so a human can follow up and lock in a real time. `phone` is
+// required — the call must not end with zero contact info saved.
+calendarRouter.post(
+  "/tools/calendar/callback_request",
+  verifyHmac(config.vapiToolSecret),
+  async (req, res, next) => {
+    const { caller_name, phone, email, preferred_day_time, reason, session_id } = req.body || {};
+
+    if (!phone || !reason || !session_id) {
+      return res.status(400).json({ error: "phone, reason, and session_id are required" });
+    }
+
+    try {
+      const result = await withTenant(config.tenantId, async (tx) => {
+        const { leadId } = await findOrCreateLeadForSession(tx, session_id);
+
+        await tx
+          .update(schema.leads)
+          .set({
+            callerName: caller_name || undefined,
+            phone,
+            email: email || undefined,
+            intent: reason,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.leads.id, leadId));
+
+        await tx.insert(schema.timelineEvents).values({
+          tenantId: config.tenantId,
+          leadId,
+          eventType: "called",
+          source: "ai",
+          notes: `Scheduling system unavailable — callback requested. Preferred time: ${
+            preferred_day_time || "not specified"
+          }. Reason: ${reason}.`,
+        });
+
+        const [task] = await tx
+          .insert(schema.tasks)
+          .values({
+            tenantId: config.tenantId,
+            leadId,
+            title: `Callback needed — lock in appointment time (${reason})${
+              preferred_day_time ? `, prefers ${preferred_day_time}` : ""
+            }`,
+            source: "call",
+            dueDate: new Date(),
+            status: "open",
+          })
+          .returning();
+
+        return { leadId, taskId: task.id };
+      });
+
+      console.log(`[calendar.callback_request] lead=${result.leadId} task=${result.taskId} session=${session_id}`);
+
+      res.status(200).json({ logged: true, lead_id: result.leadId, task_id: result.taskId });
+    } catch (err) {
+      next(err);
+    }
+  }
+);

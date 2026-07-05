@@ -137,7 +137,15 @@
   font-size: 0.88rem;
 }
 
+.call-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
 .call-row a {
   color: var(--accent);
   font-size: 0.82rem;
+  white-space: nowrap;
 }

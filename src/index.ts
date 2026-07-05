@@ -1,3 +1,4 @@
+import path from "path";
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -73,9 +74,29 @@ app.use(analyticsRouter);
 app.use(callsRouter);
 app.use(usersRouter);
 
+// Switchboard frontend — served from this same service so its relative
+// fetch("/api/v1/...") calls are same-origin (production CORS is locked to
+// `origin: false`, so a separately-hosted frontend would not work here).
+// Mounted after every /api, /tools, /vapi, /health route so none of those
+// can be shadowed by the SPA fallback below.
+const webDistPath = path.join(__dirname, "..", "web", "dist");
+app.use(express.static(webDistPath));
+app.get(/^\/(?!api|tools|vapi|health).*/, (_req, res, next) => {
+  res.sendFile(path.join(webDistPath, "index.html"), (err) => {
+    if (err) next(err);
+  });
+});
+
 app.use(notFoundHandler);
 app.use(errorHandler);
 
 app.listen(config.port, () => {
   console.log(`RE-VOICE middleware listening on port ${config.port} (mode=${config.mockMode ? "mock" : "live"})`);
+  const twilioConfigured = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+  const smsIsReal = twilioConfigured && !config.mockMode;
+  console.log(
+    smsIsReal
+      ? "[sms] Twilio configured and MOCK_MODE=false — SMS sends are REAL."
+      : `[sms] SMS sends are MOCK — no real message will be delivered (Twilio configured: ${twilioConfigured}, MOCK_MODE: ${config.mockMode}).`
+  );
 });

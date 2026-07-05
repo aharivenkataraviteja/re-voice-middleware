@@ -53,9 +53,18 @@ smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req,
       return res.status(200).json({ queued: false, capped: true, mock: config.mockMode });
     }
 
-    console.log(
-      `[sms.send] ${result.sent ? "sent" : "logged (mock/no Twilio)"} to=${redactPhone(to)} template=${template_id}`
-    );
+    // Log unambiguously whenever this is not a real send — MOCK_MODE=true
+    // (intentional for this release, see config.ts) and/or Twilio not being
+    // configured both mean no SMS actually left this server. Never let a log
+    // line read as if a real message went out when it didn't.
+    if (result.sent) {
+      console.log(`[sms.send] SENT (real) to=${redactPhone(to)} template=${template_id}`);
+    } else {
+      const reason = !TWILIO_CONFIGURED ? "no Twilio credentials configured" : "MOCK_MODE=true";
+      console.log(
+        `[sms.send] MOCK — no real SMS sent (${reason}) to=${redactPhone(to)} template=${template_id}`
+      );
+    }
 
     res.status(200).json({ queued: true, sent: result.sent, sms_id: result.entry.id, mock: !result.sent });
   } catch (err) {

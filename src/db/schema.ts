@@ -14,7 +14,7 @@ import {
 
 export const userRoleEnum = pgEnum("user_role", ["admin", "manager", "agent"]);
 export const leadStageEnum = pgEnum("lead_stage", ["hot", "warm", "cold", "past_client"]);
-export const taskSourceEnum = pgEnum("task_source", ["call", "manual"]);
+export const taskSourceEnum = pgEnum("task_source", ["call", "manual", "calendar_failure"]);
 export const taskStatusEnum = pgEnum("task_status", ["open", "done", "snoozed"]);
 export const timelineEventTypeEnum = pgEnum("timeline_event_type", [
   "called",

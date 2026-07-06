@@ -135,7 +135,7 @@ calendarRouter.post(
             title: `Callback needed — lock in appointment time (${reason})${
               preferred_day_time ? `, prefers ${preferred_day_time}` : ""
             }`,
-            source: "call",
+            source: "calendar_failure",
             dueDate: new Date(),
             status: "open",
           })

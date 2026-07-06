@@ -71,6 +71,13 @@
       "when": 1783261390911,
       "tag": "0009_lying_maggott",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783374614141,
+      "tag": "0010_nappy_lionheart",
+      "breakpoints": true
     }
   ]
 }

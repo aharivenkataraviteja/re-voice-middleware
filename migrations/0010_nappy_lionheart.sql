@@ -1,0 +1,1 @@
+ALTER TYPE "public"."task_source" ADD VALUE 'calendar_failure';

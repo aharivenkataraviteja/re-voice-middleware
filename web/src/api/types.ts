@@ -84,9 +84,10 @@ export interface Task {
   assigneeId: string | null;
   leadId: string | null;
   title: string;
-  source: "call" | "manual";
+  source: "call" | "manual" | "calendar_failure";
   dueDate: string | null;
   status: TaskStatus;
+  createdAt: string;
 }
 
 export interface TodayResponse {

@@ -19,11 +19,20 @@ function timingSafeStringEqual(a: string, b: string): boolean {
  */
 export function verifyHmac(secret: string) {
   return (req: Request, res: Response, next: NextFunction) => {
+    // Diagnostic only — header NAMES (never values), so a real request's
+    // actual auth method is provable from production logs instead of
+    // assumed from a comment or the VAPI dashboard's "Credential" setting,
+    // which is a separate concept from the tool-level server.secret this
+    // middleware actually checks.
+    const headerNames = Object.keys(req.headers).join(", ");
+
     const directSecret = req.header("x-vapi-secret");
     if (directSecret) {
       if (timingSafeStringEqual(directSecret, secret)) {
+        console.log(`[hmac] AUTH_OK method=x-vapi-secret path=${req.path} headers=[${headerNames}]`);
         return next();
       }
+      console.log(`[hmac] AUTH_FAIL method=x-vapi-secret path=${req.path} headers=[${headerNames}]`);
       return res.status(401).json({ error: "invalid secret" });
     }
 
@@ -35,12 +44,14 @@ export function verifyHmac(secret: string) {
       const providedBuf = Buffer.from(provided, "hex");
       const expectedBuf = Buffer.from(expected, "hex");
       if (providedBuf.length === expectedBuf.length && crypto.timingSafeEqual(providedBuf, expectedBuf)) {
+        console.log(`[hmac] AUTH_OK method=x-vapi-signature path=${req.path} headers=[${headerNames}]`);
         return next();
       }
+      console.log(`[hmac] AUTH_FAIL method=x-vapi-signature path=${req.path} headers=[${headerNames}]`);
       return res.status(401).json({ error: "invalid signature" });
     }
 
-    console.error(`[hmac] no recognized auth header on ${req.method} ${req.path}. Headers present: ${Object.keys(req.headers).join(", ")}`);
+    console.error(`[hmac] AUTH_MISSING path=${req.path} headers=[${headerNames}]`);
     return res.status(401).json({ error: "missing signature or secret" });
   };
 }

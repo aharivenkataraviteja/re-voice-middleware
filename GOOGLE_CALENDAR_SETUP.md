@@ -2,7 +2,9 @@
 
 Status: **setup steps only — no code written yet**, per your instruction to get Google Cloud configured before implementation starts.
 
-This covers exactly what you need to do in Google Cloud Console, and exactly what you hand back to me. Written for **External + Testing mode** (works for personal Gmail or Workspace agent accounts, up to 100 connected agents, no Google verification review). If your whole agent roster is on one Workspace domain, tell me and I'll switch the consent screen to Internal instead — smoother for agents (no warning screen), but only works if literally every connecting account is in that one Workspace org.
+**Decision confirmed:** personal Gmail accounts for the pilot, External OAuth consent screen, each agent connects their own calendar individually via OAuth (no domain-wide/service-account delegation). This covers exactly what you need to do in Google Cloud Console, and exactly what you hand back to me.
+
+**On "keep the schema flexible for Workspace later":** no schema changes will be needed when Workspace agents join. The connection model (one row per agent, holding their own encrypted refresh token) is identical whether the underlying Google account is personal Gmail or a Workspace account — a Workspace user can authorize an External-consent-screen app through the exact same individual OAuth flow. The only thing that would change later is the *consent screen* setting (External → Internal, if you ever want an all-Workspace roster and a smoother agent experience with no "unverified app" click-through) — that's a Cloud Console setting, not a data model change, so nothing in the `google_calendar_connections` table or the code needs to be rebuilt. The one thing explicitly out of scope here (since you asked for individual per-agent OAuth, not org-wide) is domain-wide delegation via a service account, which is a materially different architecture (an admin pre-authorizes access to every user's calendar without each agent clicking "Connect") — worth knowing that's a separate, larger decision if a future Workspace customer ever wants it, not something this pilot design assumes or blocks.
 
 ---
 

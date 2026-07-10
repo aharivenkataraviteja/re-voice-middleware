@@ -3,6 +3,7 @@ import { verifyHmac } from "../../hmac";
 import { config } from "../../config";
 import { withTenant } from "../../db/client";
 import { findReturningCallerContext } from "../../services/callerMemoryService";
+import { extractToolCall, sendToolResult, sendToolError } from "../../lib/vapiTool";
 
 export const callerMemoryRouter = Router();
 
@@ -15,14 +16,15 @@ callerMemoryRouter.post(
   "/tools/caller/lookup_history",
   verifyHmac(config.vapiToolSecret),
   async (req, res, next) => {
-    const { phone, session_id } = req.body || {};
+    const { toolCallId, args } = extractToolCall(req);
+    const { phone, session_id } = args;
     if (!phone || !session_id) {
-      return res.status(400).json({ error: "phone and session_id are required" });
+      return sendToolError(res, toolCallId, "phone and session_id are required");
     }
 
     try {
       const result = await withTenant(config.tenantId, (tx) => findReturningCallerContext(tx, phone));
-      res.status(200).json(result);
+      sendToolResult(res, toolCallId, result);
     } catch (err) {
       next(err);
     }

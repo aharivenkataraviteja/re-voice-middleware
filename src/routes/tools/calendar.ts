@@ -14,6 +14,7 @@ import {
   createCalendarEvent,
   markConnectionError,
 } from "../../services/googleCalendarService";
+import { extractToolCall, sendToolResult, sendToolError } from "../../lib/vapiTool";
 
 export const calendarRouter = Router();
 
@@ -35,7 +36,8 @@ async function resolveConnectedAgent(tx: Parameters<typeof getConnection>[0], re
 }
 
 calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
-  const { agent_id, caller_timezone } = req.body || {};
+  const { toolCallId, args } = extractToolCall(req);
+  const { agent_id, caller_timezone } = args;
 
   try {
     const result = await withTenant(config.tenantId, async (tx) => {
@@ -72,7 +74,7 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
       if (config.mockMode) {
         const now = Date.now();
         const day = 24 * 60 * 60 * 1000;
-        return res.status(200).json({
+        return sendToolResult(res, toolCallId, {
           slots: [
             { start: new Date(now + day).toISOString(), format: "in-person" },
             { start: new Date(now + 2 * day).toISOString(), format: "virtual" },
@@ -80,7 +82,7 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
           mock: true,
         });
       }
-      return res.status(501).json({ error: "no_calendar_connected", code: "NOT_CONFIGURED" });
+      return sendToolError(res, toolCallId, "no_calendar_connected");
     }
 
     if (result.slots === null) {
@@ -89,10 +91,10 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
       // fabricated mock slots here; that would violate "never offer a time
       // unless Google confirms availability." Fail loudly so the prompt's
       // fallback path fires instead.
-      return res.status(502).json({ error: "google_calendar_unavailable", code: "UPSTREAM_ERROR" });
+      return sendToolError(res, toolCallId, "google_calendar_unavailable");
     }
 
-    res.status(200).json({
+    sendToolResult(res, toolCallId, {
       slots: result.slots.map((s) => ({ start: s.toISOString(), format: "in-person" })),
       mock: false,
       agent_id: result.agentId,
@@ -103,6 +105,7 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
 });
 
 calendarRouter.post("/tools/calendar/book", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
+  const { toolCallId, args } = extractToolCall(req);
   const {
     slot_start,
     appointment_type,
@@ -113,10 +116,10 @@ calendarRouter.post("/tools/calendar/book", verifyHmac(config.vapiToolSecret), a
     agent_id,
     session_id,
     notes,
-  } = req.body || {};
+  } = args;
 
   if (!slot_start || !appointment_type || !attendee_name || !attendee_phone || !session_id) {
-    return res.status(400).json({ error: "missing required booking fields" });
+    return sendToolError(res, toolCallId, "missing required booking fields");
   }
 
   try {
@@ -201,12 +204,12 @@ calendarRouter.post("/tools/calendar/book", verifyHmac(config.vapiToolSecret), a
     });
 
     if (outcome.failed) {
-      return res.status(502).json({ error: "booking_failed", code: "UPSTREAM_ERROR" });
+      return sendToolError(res, toolCallId, "booking_failed");
     }
 
     console.log(`[calendar.book] booking=${outcome.appointment.id} session=${session_id} real=${Boolean(outcome.appointment.googleEventId)}`);
 
-    res.status(200).json({
+    sendToolResult(res, toolCallId, {
       booked: true,
       booking_id: outcome.appointment.id,
       slot_start,
@@ -227,10 +230,11 @@ calendarRouter.post(
   "/tools/calendar/callback_request",
   verifyHmac(config.vapiToolSecret),
   async (req, res, next) => {
-    const { caller_name, phone, email, preferred_day_time, reason, session_id } = req.body || {};
+    const { toolCallId, args } = extractToolCall(req);
+    const { caller_name, phone, email, preferred_day_time, reason, session_id } = args;
 
     if (!phone || !reason || !session_id) {
-      return res.status(400).json({ error: "phone, reason, and session_id are required" });
+      return sendToolError(res, toolCallId, "phone, reason, and session_id are required");
     }
 
     try {
@@ -277,7 +281,7 @@ calendarRouter.post(
 
       console.log(`[calendar.callback_request] lead=${result.leadId} task=${result.taskId} session=${session_id}`);
 
-      res.status(200).json({ logged: true, lead_id: result.leadId, task_id: result.taskId });
+      sendToolResult(res, toolCallId, { logged: true, lead_id: result.leadId, task_id: result.taskId });
     } catch (err) {
       next(err);
     }

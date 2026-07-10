@@ -4,15 +4,15 @@ import { config } from "../../config";
 import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
 import { findOrCreateLeadForSession } from "../../services/leadService";
+import { extractToolCall, sendToolResult, sendToolError } from "../../lib/vapiTool";
 
 export const transferRouter = Router();
 
 transferRouter.post("/tools/call/transfer", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
-  const { transfer_type, target, escalation_reason, context_summary, session_id } = req.body || {};
+  const { toolCallId, args } = extractToolCall(req);
+  const { transfer_type, target, escalation_reason, context_summary, session_id } = args;
   if (!transfer_type || !target || !escalation_reason || !session_id) {
-    return res
-      .status(400)
-      .json({ error: "transfer_type, target, escalation_reason, and session_id are required" });
+    return sendToolError(res, toolCallId, "transfer_type, target, escalation_reason, and session_id are required");
   }
 
   try {
@@ -49,7 +49,7 @@ transferRouter.post("/tools/call/transfer", verifyHmac(config.vapiToolSecret), a
 
     console.log(`[call.transfer] target=${target} reason="${escalation_reason}" task=${task.id}`);
 
-    res.status(200).json({
+    sendToolResult(res, toolCallId, {
       transferred: false,
       callback_task_created: true,
       task_id: task.id,

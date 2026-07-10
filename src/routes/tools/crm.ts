@@ -6,6 +6,7 @@ import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
 import { findOrCreateLeadForSession, applySignalsToLead } from "../../services/leadService";
 import type { RawLeadSignals } from "../../services/scoringService";
+import { extractToolCall, sendToolResult, sendToolError } from "../../lib/vapiTool";
 
 export const crmRouter = Router();
 
@@ -31,9 +32,10 @@ function extractSignals(fields: Record<string, unknown> | undefined): RawLeadSig
 }
 
 crmRouter.post("/tools/crm/update", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
-  const { session_id, action, fields, activity } = req.body || {};
+  const { toolCallId, args } = extractToolCall(req);
+  const { session_id, action, fields, activity } = args;
   if (!session_id || !action) {
-    return res.status(400).json({ error: "session_id and action are required" });
+    return sendToolError(res, toolCallId, "session_id and action are required");
   }
 
   try {
@@ -73,7 +75,7 @@ crmRouter.post("/tools/crm/update", verifyHmac(config.vapiToolSecret), async (re
 
     console.log(`[crm.update] action=${action} lead=${result.leadId} stage=${result.stage} session=${session_id}`);
 
-    res.status(200).json({ updated: true, contact_id: result.leadId, mock: config.mockMode });
+    sendToolResult(res, toolCallId, { updated: true, contact_id: result.leadId, mock: config.mockMode });
   } catch (err) {
     next(err);
   }

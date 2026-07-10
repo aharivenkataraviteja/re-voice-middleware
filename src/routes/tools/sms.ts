@@ -6,6 +6,7 @@ import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
 import { findOrCreateLeadForSession } from "../../services/leadService";
 import { redactPhone } from "../../lib/redact";
+import { extractToolCall, sendToolResult, sendToolError } from "../../lib/vapiTool";
 
 export const smsRouter = Router();
 
@@ -13,9 +14,10 @@ const TWILIO_CONFIGURED = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.
 const MAX_SMS_PER_CALL = 2;
 
 smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
-  const { to, template_id, session_id } = req.body || {};
+  const { toolCallId, args } = extractToolCall(req);
+  const { to, template_id, session_id } = args;
   if (!to || !template_id || !session_id) {
-    return res.status(400).json({ error: "to, template_id, and session_id are required" });
+    return sendToolError(res, toolCallId, "to, template_id, and session_id are required");
   }
 
   try {
@@ -50,7 +52,7 @@ smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req,
 
     if (result.capped) {
       console.log(`[sms.send] capped at ${MAX_SMS_PER_CALL}/call for session=${session_id}`);
-      return res.status(200).json({ queued: false, capped: true, mock: config.mockMode });
+      return sendToolResult(res, toolCallId, { queued: false, capped: true, mock: config.mockMode });
     }
 
     // Log unambiguously whenever this is not a real send — MOCK_MODE=true
@@ -66,7 +68,7 @@ smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req,
       );
     }
 
-    res.status(200).json({ queued: true, sent: result.sent, sms_id: result.entry.id, mock: !result.sent });
+    sendToolResult(res, toolCallId, { queued: true, sent: result.sent, sms_id: result.entry.id, mock: !result.sent });
   } catch (err) {
     next(err);
   }

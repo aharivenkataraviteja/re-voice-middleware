@@ -15,6 +15,8 @@ import type {
   AnalyticsSummary,
   LeaderboardRow,
   CoachNote,
+  GoogleCalendarStatus,
+  TeamCalendarConnection,
 } from "./types";
 
 // Short staleTime on Today's Work — the one screen that's meant to feel
@@ -211,5 +213,32 @@ export function useApproveCoachNote() {
   return useMutation({
     mutationFn: (id: string) => api.patch<{ note: CoachNote }>(`/api/v1/analytics/coach-note/${id}/approve`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["analytics", "coach-note"] }),
+  });
+}
+
+export function useGoogleCalendarStatus() {
+  return useQuery({
+    queryKey: ["google-calendar", "status"],
+    queryFn: () => api.get<GoogleCalendarStatus>("/api/v1/integrations/google-calendar/status"),
+    staleTime: 30_000,
+  });
+}
+
+export function useGoogleCalendarTeamStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: ["google-calendar", "team-status"],
+    queryFn: () => api.get<{ agents: TeamCalendarConnection[] }>("/api/v1/integrations/google-calendar/team-status"),
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
+export function useDisconnectGoogleCalendar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/api/v1/integrations/google-calendar/disconnect"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["google-calendar"] });
+    },
   });
 }

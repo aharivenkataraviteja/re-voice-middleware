@@ -1,0 +1,83 @@
+.gcal-section {
+  margin-bottom: 1.8rem;
+  padding-bottom: 1.4rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.gcal-banner {
+  padding: 0.7rem 1rem;
+  border-radius: 4px;
+  font-size: 0.88rem;
+  margin-bottom: 0.8rem;
+}
+
+.gcal-banner-success {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.gcal-banner-error {
+  background: var(--critical-soft);
+  color: var(--critical);
+}
+
+.gcal-own-status {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.gcal-email {
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+}
+
+.gcal-connect-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gcal-connect-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.gcal-team {
+  margin-top: 1.2rem;
+}
+
+.gcal-team-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+
+.gcal-team-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.gcal-team-table td {
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.88rem;
+}
+
+.gcal-team-table tr:last-child td {
+  border-bottom: none;
+}

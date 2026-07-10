@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useAppointments, useLeads, useUpdateAppointment } from "../api/hooks";
 import { useUserNameLookup } from "../api/useUserName";
 import { useAuth } from "../auth/AuthContext";
+import { GoogleCalendarConnection } from "../components/GoogleCalendarConnection";
 import type { Appointment, AppointmentStatus } from "../api/types";
 import "./CalendarPage.css";
 
@@ -73,6 +74,8 @@ export function CalendarPage() {
   return (
     <div className="calendar-page">
       <h1 className="page-title">Calendar</h1>
+
+      <GoogleCalendarConnection />
 
       {days.map(({ date, appts }, i) => (
         <section className="calendar-day" key={date.toISOString()}>

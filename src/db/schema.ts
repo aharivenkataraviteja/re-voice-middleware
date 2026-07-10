@@ -31,6 +31,11 @@ export const appointmentStatusEnum = pgEnum("appointment_status", [
   "no_show",
   "cancelled",
 ]);
+export const calendarConnectionStatusEnum = pgEnum("calendar_connection_status", [
+  "connected",
+  "disconnected",
+  "error",
+]);
 
 // Single-tenant for Release 1.0 (Luxury Partners Realty) — every table is
 // tenant_id-scoped from day one so onboarding a second brokerage later is a
@@ -138,10 +143,43 @@ export const appointments = pgTable(
     format: text("format"),
     status: appointmentStatusEnum("status").notNull().default("confirmed"),
     notes: text("notes"),
+    // Set only when the appointment was created on the agent's real Google
+    // Calendar — lets a future reschedule/cancel tool update or remove the
+    // same event instead of only touching our own row (a gap flagged in the
+    // pilot acceptance test plan, S28/S29).
+    googleEventId: text("google_event_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     tenantSlotIdx: index("appointments_tenant_slot_idx").on(table.tenantId, table.slotStart),
+  })
+);
+
+// One row per agent per tenant — each realtor connects their own personal
+// Google Calendar via individual OAuth (see GOOGLE_CALENDAR_SETUP.md). This
+// shape needs no changes to support Workspace agents later: a Workspace
+// account authorizes through the identical per-user OAuth flow, so the only
+// future difference is the Cloud Console consent-screen setting, not this
+// table.
+export const calendarConnections = pgTable(
+  "calendar_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    agentId: uuid("agent_id").notNull().references(() => users.id),
+    provider: text("provider").notNull().default("google"),
+    googleAccountEmail: text("google_account_email"),
+    calendarId: text("calendar_id").notNull().default("primary"),
+    // AES-256-GCM ciphertext (iv:authTag:ciphertext, base64 segments) — see
+    // src/lib/tokenCrypto.ts. Never selected in any API response.
+    refreshTokenEncrypted: text("refresh_token_encrypted"),
+    status: calendarConnectionStatusEnum("status").notNull().default("disconnected"),
+    lastError: text("last_error"),
+    connectedAt: timestamp("connected_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    tenantAgentUnique: uniqueIndex("calendar_connections_tenant_agent_unique").on(table.tenantId, table.agentId),
   })
 );
 

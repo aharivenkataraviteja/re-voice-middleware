@@ -24,6 +24,7 @@ import { todayRouter } from "./routes/api/today";
 import { analyticsRouter } from "./routes/api/analytics";
 import { callsRouter } from "./routes/api/calls";
 import { usersRouter } from "./routes/api/users";
+import { googleCalendarRouter } from "./routes/api/googleCalendar";
 
 const app = express();
 
@@ -75,6 +76,7 @@ app.use(todayRouter);
 app.use(analyticsRouter);
 app.use(callsRouter);
 app.use(usersRouter);
+app.use(googleCalendarRouter);
 
 // Switchboard frontend — served from this same service so its relative
 // fetch("/api/v1/...") calls are same-origin (production CORS is locked to

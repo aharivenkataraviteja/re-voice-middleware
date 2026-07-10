@@ -31,4 +31,18 @@ export const config = {
   // resolving tenant_id from the called phone number instead — deferred
   // until there's a second real tenant to route for.
   tenantId: required("TENANT_ID"),
+  // Google Calendar integration is optional at the process level — the app
+  // must still boot and serve the mock-slot fallback if these aren't set
+  // yet (e.g. before pilot setup, or for a tenant that never connects
+  // Google). Individual agents' connection status is what actually gates
+  // real-vs-mock behavior per request, not whether these env vars exist.
+  googleClientId: process.env.GOOGLE_CLIENT_ID,
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  googleRedirectUri: process.env.GOOGLE_REDIRECT_URI,
+  googleTokenEncryptionKey: process.env.GOOGLE_TOKEN_ENCRYPTION_KEY,
+  get googleConfigured(): boolean {
+    return Boolean(
+      this.googleClientId && this.googleClientSecret && this.googleRedirectUri && this.googleTokenEncryptionKey
+    );
+  },
 };

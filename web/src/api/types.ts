@@ -134,3 +134,26 @@ export interface CoachNote {
   generatedBy: "llm" | "template";
   createdAt: string;
 }
+
+export type CalendarConnectionStatus = "connected" | "disconnected" | "error";
+
+export interface GoogleCalendarStatus {
+  connected: boolean;
+  status?: CalendarConnectionStatus;
+  googleAccountEmail?: string | null;
+  calendarId?: string;
+  lastError?: string | null;
+  connectedAt?: string | null;
+}
+
+export interface TeamCalendarConnection {
+  agentId: string;
+  agentName: string | null;
+  agentEmail: string;
+  role: Role;
+  connected: boolean;
+  status: CalendarConnectionStatus;
+  googleAccountEmail: string | null;
+  lastError: string | null;
+  connectedAt: string | null;
+}

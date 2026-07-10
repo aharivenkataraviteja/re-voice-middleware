@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from "../../middleware/auth";
 import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
 import { paginationSchema } from "../../lib/pagination";
+import { getTenantAvailability, DEFAULT_AVAILABILITY } from "../../services/availabilityService";
 
 export const appointmentsRouter = Router();
 
@@ -100,13 +101,6 @@ appointmentsRouter.patch("/api/v1/appointments/:id", requireAuth, async (req, re
   }
 });
 
-const DEFAULT_AVAILABILITY = {
-  timezone: "America/New_York",
-  businessHours: { start: "09:00", end: "18:00", days: [1, 2, 3, 4, 5] },
-  bufferMinutes: 15,
-  maxPerDay: 3,
-};
-
 const availabilitySchema = z.object({
   timezone: z.string().optional(),
   businessHours: z.object({ start: z.string(), end: z.string(), days: z.array(z.number().int().min(0).max(6)) }).optional(),
@@ -114,19 +108,13 @@ const availabilitySchema = z.object({
   maxPerDay: z.number().int().min(1).optional(),
 });
 
-// Release 1.0: one shared availability config per tenant (stored on
-// tenants.settings), not per-agent yet — real per-agent calendars and
-// external Google/Outlook sync are backlog (module 4's future note).
+// Tenant-wide business-hours config, shared with the real Google Calendar
+// slot generation in routes/tools/calendar.ts via availabilityService.ts —
+// one source of truth for "when is this brokerage open."
 appointmentsRouter.get("/api/v1/availability", requireAuth, async (req, res, next) => {
   try {
-    const settings = await withTenant(req.user!.tenantId, async (tx) => {
-      const [tenant] = await tx
-        .select({ settings: schema.tenants.settings })
-        .from(schema.tenants)
-        .where(eq(schema.tenants.id, req.user!.tenantId));
-      return tenant?.settings as { availability?: typeof DEFAULT_AVAILABILITY } | undefined;
-    });
-    res.status(200).json(settings?.availability ?? DEFAULT_AVAILABILITY);
+    const availability = await withTenant(req.user!.tenantId, (tx) => getTenantAvailability(tx, req.user!.tenantId));
+    res.status(200).json(availability);
   } catch (err) {
     next(err);
   }

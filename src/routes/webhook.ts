@@ -55,7 +55,7 @@ webhookRouter.post("/vapi/webhook", verifyHmac(config.vapiWebhookSecret), async 
               : null);
 
           const patch = {
-            durationSeconds: durationSeconds ?? null,
+            durationSeconds: durationSeconds != null ? Math.round(durationSeconds) : null,
             outcome: message.endedReason ?? null,
             endedReason: message.endedReason ?? null,
             recordingUrl: message.recordingUrl ?? message.artifact?.recordingUrl ?? null,

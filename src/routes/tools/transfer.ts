@@ -4,23 +4,25 @@ import { config } from "../../config";
 import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
 import { findOrCreateLeadForSession } from "../../services/leadService";
-import { extractToolCall, sendToolResult, sendToolError } from "../../lib/vapiTool";
+import { extractToolCall, resolveCallId, sendToolResult, sendToolError } from "../../lib/vapiTool";
 
 export const transferRouter = Router();
 
 transferRouter.post("/tools/call/transfer", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
-  const { toolCallId, args } = extractToolCall(req);
+  const { toolCallId, args, realCallId, callerNumber } = extractToolCall(req);
   const { transfer_type, target, escalation_reason, context_summary, session_id } = args;
   if (!transfer_type || !target || !escalation_reason || !session_id) {
     return sendToolError(res, toolCallId, "transfer_type, target, escalation_reason, and session_id are required");
   }
+
+  const callId = resolveCallId(realCallId, session_id, "transfer_call");
 
   try {
     // No live human-agent routing configured yet — creates an urgent
     // callback task instead of an actual transfer, which is exactly what
     // Today's Work (M4) surfaces to an agent.
     const task = await withTenant(config.tenantId, async (tx) => {
-      const { leadId } = await findOrCreateLeadForSession(tx, session_id);
+      const { leadId } = await findOrCreateLeadForSession(tx, callId, callerNumber);
 
       await tx.insert(schema.timelineEvents).values({
         tenantId: config.tenantId,

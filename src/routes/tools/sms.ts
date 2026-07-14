@@ -6,7 +6,7 @@ import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
 import { findOrCreateLeadForSession } from "../../services/leadService";
 import { redactPhone } from "../../lib/redact";
-import { extractToolCall, sendToolResult, sendToolError } from "../../lib/vapiTool";
+import { extractToolCall, resolveCallId, sendToolResult, sendToolError } from "../../lib/vapiTool";
 
 export const smsRouter = Router();
 
@@ -14,20 +14,25 @@ const TWILIO_CONFIGURED = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.
 const MAX_SMS_PER_CALL = 2;
 
 smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
-  const { toolCallId, args } = extractToolCall(req);
+  const { toolCallId, args, realCallId, callerNumber } = extractToolCall(req);
   const { to, template_id, session_id } = args;
   if (!to || !template_id || !session_id) {
     return sendToolError(res, toolCallId, "to, template_id, and session_id are required");
   }
 
+  // Using the real call ID (not the LLM's session_id) as the smsLog key is
+  // what makes MAX_SMS_PER_CALL actually per-call — previously every call
+  // shared the same fabricated session_id, so this cap was silently global.
+  const callId = resolveCallId(realCallId, session_id, "send_sms");
+
   try {
     const result = await withTenant(config.tenantId, async (tx) => {
-      const { leadId } = await findOrCreateLeadForSession(tx, session_id);
+      const { leadId } = await findOrCreateLeadForSession(tx, callId, callerNumber);
 
       const [{ count }] = await tx
         .select({ count: sql<number>`count(*)::int` })
         .from(schema.smsLog)
-        .where(and(eq(schema.smsLog.sessionId, session_id)));
+        .where(and(eq(schema.smsLog.sessionId, callId)));
 
       if (count >= MAX_SMS_PER_CALL) {
         return { capped: true as const };
@@ -40,7 +45,7 @@ smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req,
         .values({
           tenantId: config.tenantId,
           leadId,
-          sessionId: session_id,
+          sessionId: callId,
           toNumberRedacted: redactPhone(to),
           templateId: template_id,
           sent,
@@ -51,7 +56,7 @@ smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req,
     });
 
     if (result.capped) {
-      console.log(`[sms.send] capped at ${MAX_SMS_PER_CALL}/call for session=${session_id}`);
+      console.log(`[sms.send] capped at ${MAX_SMS_PER_CALL}/call for call=${callId}`);
       return sendToolResult(res, toolCallId, { queued: false, capped: true, mock: config.mockMode });
     }
 

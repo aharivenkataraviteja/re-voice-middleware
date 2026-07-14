@@ -137,6 +137,13 @@ export const appointments = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
     leadId: uuid("lead_id").references(() => leads.id),
+    // The calls row this appointment was booked during — nullable so
+    // pre-existing rows (booked before this column existed) are clearly
+    // distinguishable as "unknown origin" rather than silently backfilled
+    // with a guess. See leadService.findOrCreateLeadForSession, whose
+    // returned callId is always the real VAPI call ID, never the LLM's
+    // fabricated session_id.
+    callId: uuid("call_id").references(() => calls.id),
     agentId: uuid("agent_id").references(() => users.id),
     slotStart: timestamp("slot_start", { withTimezone: true }).notNull(),
     appointmentType: text("appointment_type"),

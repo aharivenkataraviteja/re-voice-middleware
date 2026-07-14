@@ -70,6 +70,7 @@ export interface Call {
 export interface Appointment {
   id: string;
   leadId: string | null;
+  callId: string | null;
   agentId: string | null;
   slotStart: string;
   appointmentType: string | null;

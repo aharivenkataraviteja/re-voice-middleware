@@ -11,6 +11,10 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function formatDateTime(iso: string) {
+  return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 export function LeadDetailPanel({ leadId, onClose }: { leadId: string; onClose: () => void }) {
   const { data, isLoading } = useLead(leadId);
   const { data: usersData } = useUsers();
@@ -28,7 +32,68 @@ export function LeadDetailPanel({ leadId, onClose }: { leadId: string; onClose: 
         ) : (
           <>
             <h2 className="detail-name">{data.lead.callerName || "Unnamed lead"}</h2>
-            <div className="detail-meta">{data.lead.phone || data.lead.email || "No contact info"}</div>
+
+            {(() => {
+              const { lead, calls, appointments } = data;
+              const assignedAgent = usersData?.users.find((u) => u.id === lead.assignedAgentId);
+              // calls is already ordered most-recent-first by the API; the most
+              // recent call or timeline event (whichever is later) is "last interaction."
+              const lastCallAt = calls[0]?.startedAt ?? null;
+              const lastTimelineAt = data.timeline.length ? data.timeline[data.timeline.length - 1].eventDate : null;
+              const lastInteraction = [lastCallAt, lastTimelineAt]
+                .filter((d): d is string => Boolean(d))
+                .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+              const now = Date.now();
+              const upcomingAppt = appointments
+                .filter((a) => a.status === "confirmed" && new Date(a.slotStart).getTime() > now)
+                .sort((a, b) => new Date(a.slotStart).getTime() - new Date(b.slotStart).getTime())[0];
+              // Not a captured preference (nothing in the current call flow asks
+              // the caller to choose) — derived from what contact info exists.
+              const preferredContact = lead.phone ? "Phone" : lead.email ? "Email" : "Not specified";
+
+              return (
+                <div className="detail-contact">
+                  <div className="detail-contact-item">
+                    <span className="detail-contact-label">Phone</span>
+                    <span className={lead.phone ? "detail-contact-value" : "detail-contact-value muted"}>
+                      {lead.phone || "Not collected"}
+                    </span>
+                  </div>
+                  <div className="detail-contact-item">
+                    <span className="detail-contact-label">Email</span>
+                    <span className={lead.email ? "detail-contact-value" : "detail-contact-value muted"}>
+                      {lead.email || "Not collected"}
+                    </span>
+                  </div>
+                  <div className="detail-contact-item">
+                    <span className="detail-contact-label">Preferred contact</span>
+                    <span className={preferredContact === "Not specified" ? "detail-contact-value muted" : "detail-contact-value"}>
+                      {preferredContact}
+                    </span>
+                  </div>
+                  <div className="detail-contact-item">
+                    <span className="detail-contact-label">Last interaction</span>
+                    <span className={lastInteraction ? "detail-contact-value" : "detail-contact-value muted"}>
+                      {lastInteraction ? formatDateTime(lastInteraction) : "None yet"}
+                    </span>
+                  </div>
+                  <div className="detail-contact-item">
+                    <span className="detail-contact-label">Upcoming appointment</span>
+                    <span className={upcomingAppt ? "detail-contact-value" : "detail-contact-value muted"}>
+                      {upcomingAppt
+                        ? `${formatDateTime(upcomingAppt.slotStart)}${upcomingAppt.appointmentType ? ` — ${upcomingAppt.appointmentType.replace(/_/g, " ")}` : ""}`
+                        : "None scheduled"}
+                    </span>
+                  </div>
+                  <div className="detail-contact-item">
+                    <span className="detail-contact-label">Assigned agent</span>
+                    <span className={assignedAgent ? "detail-contact-value" : "detail-contact-value muted"}>
+                      {assignedAgent ? assignedAgent.fullName || assignedAgent.email : "Unassigned"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="detail-controls">
               <label className="detail-field">

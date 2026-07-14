@@ -6,7 +6,8 @@ import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
 import { findOrCreateLeadForSession, applySignalsToLead } from "../../services/leadService";
 import type { RawLeadSignals } from "../../services/scoringService";
-import { extractToolCall, sendToolResult, sendToolError } from "../../lib/vapiTool";
+import { toE164 } from "../../lib/phone";
+import { extractToolCall, resolveCallId, sendToolResult, sendToolError } from "../../lib/vapiTool";
 
 export const crmRouter = Router();
 
@@ -32,21 +33,23 @@ function extractSignals(fields: Record<string, unknown> | undefined): RawLeadSig
 }
 
 crmRouter.post("/tools/crm/update", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
-  const { toolCallId, args } = extractToolCall(req);
+  const { toolCallId, args, realCallId, callerNumber } = extractToolCall(req);
   const { session_id, action, fields, activity } = args;
   if (!session_id || !action) {
     return sendToolError(res, toolCallId, "session_id and action are required");
   }
 
+  const callId = resolveCallId(realCallId, session_id, "update_crm_lead");
+
   try {
     const result = await withTenant(config.tenantId, async (tx) => {
-      const { leadId } = await findOrCreateLeadForSession(tx, session_id);
+      const { leadId } = await findOrCreateLeadForSession(tx, callId, callerNumber);
 
       const patch: Partial<typeof schema.leads.$inferInsert> = { updatedAt: new Date() };
       if (fields?.first_name || fields?.last_name) {
         patch.callerName = [fields.first_name, fields.last_name].filter(Boolean).join(" ");
       }
-      if (fields?.phone) patch.phone = fields.phone;
+      if (fields?.phone) patch.phone = toE164(fields.phone) || fields.phone;
       if (fields?.email) patch.email = fields.email;
       if (fields?.lead_type) patch.intent = fields.lead_type;
       if (fields?.nurture_tier) patch.nurtureTier = fields.nurture_tier;
@@ -73,7 +76,7 @@ crmRouter.post("/tools/crm/update", verifyHmac(config.vapiToolSecret), async (re
       return { leadId, scores, stage };
     });
 
-    console.log(`[crm.update] action=${action} lead=${result.leadId} stage=${result.stage} session=${session_id}`);
+    console.log(`[crm.update] action=${action} lead=${result.leadId} stage=${result.stage} call=${callId}`);
 
     sendToolResult(res, toolCallId, { updated: true, contact_id: result.leadId, mock: config.mockMode });
   } catch (err) {

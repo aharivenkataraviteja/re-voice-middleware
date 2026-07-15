@@ -5,9 +5,9 @@ import { config } from "../../config";
 import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
 import { findOrCreateLeadForSession } from "../../services/leadService";
-import { getTenantAvailability } from "../../services/availabilityService";
+import { getTenantAvailability, DEFAULT_AVAILABILITY } from "../../services/availabilityService";
 import { generateAvailableSlots } from "../../lib/slotGeneration";
-import { localDateString } from "../../lib/dateContext";
+import { localDateString, describeLocalDateTime } from "../../lib/dateContext";
 import { toE164 } from "../../lib/phone";
 import {
   getConnection,
@@ -118,10 +118,13 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
       if (config.mockMode) {
         const now = Date.now();
         const day = 24 * 60 * 60 * 1000;
+        const tz = DEFAULT_AVAILABILITY.timezone;
+        const slot1 = new Date(now + day);
+        const slot2 = new Date(now + 2 * day);
         return sendToolResult(res, toolCallId, {
           slots: [
-            { start: new Date(now + day).toISOString(), format: "in-person" },
-            { start: new Date(now + 2 * day).toISOString(), format: "virtual" },
+            { start: slot1.toISOString(), format: "in-person", label: describeLocalDateTime(slot1, tz) },
+            { start: slot2.toISOString(), format: "virtual", label: describeLocalDateTime(slot2, tz) },
           ],
           mock: true,
         });
@@ -139,7 +142,11 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
     }
 
     sendToolResult(res, toolCallId, {
-      slots: result.slots.map((s) => ({ start: s.toISOString(), format: "in-person" })),
+      // `label` is the only thing Alex should speak — see DATE & TIME
+      // RESOLUTION. `start` is still included for book_appointment's
+      // slot_start argument, but must never be translated into speech
+      // directly (observed hallucinating "today" for a slot 13+ hours away).
+      slots: result.slots.map((s) => ({ start: s.toISOString(), format: "in-person", label: describeLocalDateTime(s, result.timeZone) })),
       mock: false,
       agent_id: result.agentId,
       resolved_date: hasRequestedDate ? requested_date : undefined,
@@ -192,10 +199,10 @@ calendarRouter.post("/tools/calendar/book", verifyHmac(config.vapiToolSecret), a
       const connection = await resolveConnectedAgent(tx, agent_id);
       const slotStart = new Date(slot_start);
       const slotEnd = new Date(slotStart.getTime() + 60 * 60 * 1000);
+      const availability = await getTenantAvailability(tx, config.tenantId);
 
       let googleEventId: string | null = null;
       if (connection) {
-        const availability = await getTenantAvailability(tx, config.tenantId);
         const callLink = dbCallId ? `https://re-voice-middleware-production.up.railway.app/calls/${dbCallId}` : null;
         const description = [
           `Caller: ${attendee_name}`,
@@ -254,7 +261,7 @@ calendarRouter.post("/tools/calendar/book", verifyHmac(config.vapiToolSecret), a
         notes: `${appointment_type} at ${slot_start}`,
       });
 
-      return { failed: false as const, appointment };
+      return { failed: false as const, appointment, timeZone: availability.timezone };
     });
 
     if (outcome.failed) {
@@ -267,6 +274,9 @@ calendarRouter.post("/tools/calendar/book", verifyHmac(config.vapiToolSecret), a
       booked: true,
       booking_id: outcome.appointment.id,
       slot_start,
+      // See DATE & TIME RESOLUTION — Alex must speak this label, not
+      // reconstruct the day/time from slot_start itself.
+      label: describeLocalDateTime(new Date(slot_start), outcome.timeZone),
       mock: !outcome.appointment.googleEventId,
     });
   } catch (err) {

@@ -66,6 +66,34 @@ export interface BusinessHours {
   days: number[]; // 0=Sun..6=Sat
 }
 
+// Ready-to-speak label for a specific instant (an offered or booked slot),
+// e.g. "today at 9:00 AM", "tomorrow at 2:00 PM", "Thursday, July 16 at
+// 11:00 AM". Observed in production: even with date_context available
+// elsewhere, the model does not reliably translate a raw ISO slot timestamp
+// into correct "today"/"tomorrow"/weekday speech on its own (a real call
+// offered a slot 13+ hours away as "today"). Computing the label server-side
+// and having Alex simply speak it removes that translation step entirely
+// for the two calls that matter most — offering and confirming a slot.
+export function describeLocalDateTime(date: Date, timeZone: string, now: Date = new Date()): string {
+  const dateStr = localDateString(date, timeZone);
+  const nowStr = localDateString(now, timeZone);
+  const tomorrowStr = shiftDate(nowStr, 1);
+
+  const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", hour12: true }).format(date);
+
+  let dayLabel: string;
+  if (dateStr === nowStr) {
+    dayLabel = "today";
+  } else if (dateStr === tomorrowStr) {
+    dayLabel = "tomorrow";
+  } else {
+    const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(date);
+    const monthDay = new Intl.DateTimeFormat("en-US", { timeZone, month: "long", day: "numeric" }).format(date);
+    dayLabel = `${weekday}, ${monthDay}`;
+  }
+  return `${dayLabel} at ${time}`;
+}
+
 export function computeDateContext(now: Date, timezone: string, businessHours: BusinessHours): DateContext {
   const localDate = localDateString(now, timezone);
   const localTime = localTimeString(now, timezone);

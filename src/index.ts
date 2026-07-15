@@ -9,6 +9,7 @@ import { requestLogger } from "./middleware/requestLogger";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler";
 import { healthRouter } from "./routes/health";
 import { webhookRouter } from "./routes/webhook";
+import { assistantRequestRouter } from "./routes/assistantRequest";
 import { calendarRouter } from "./routes/tools/calendar";
 import { propertyRouter } from "./routes/tools/property";
 import { marketRouter } from "./routes/tools/market";
@@ -61,6 +62,7 @@ app.use(requestLogger);
 
 app.use(healthRouter);
 app.use(webhookRouter);
+app.use(assistantRequestRouter);
 app.use(calendarRouter);
 app.use(propertyRouter);
 app.use(marketRouter);

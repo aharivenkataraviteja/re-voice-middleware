@@ -1,14 +1,10 @@
 import { eq, and, desc, gt, sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { TenantScopedDb } from "../db/client";
-
-// Formatting varies (E.164 vs. spoken-then-transcribed digits), so match on
-// the last 10 digits rather than an exact string — robust to '+1', spaces,
-// dashes, or a missing country code without risking false positives on
-// short/garbage input.
-function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, "").slice(-10);
-}
+import { phoneMatchKey } from "../lib/phone";
+import { getTenantAvailability } from "./availabilityService";
+import { describeLocalDateTime } from "../lib/dateContext";
+import { config } from "../config";
 
 export type ReturningCallerResult =
   | { returning: false }
@@ -25,7 +21,7 @@ export async function findReturningCallerContext(
   tx: TenantScopedDb,
   phone: string
 ): Promise<ReturningCallerResult> {
-  const normalized = normalizePhone(phone);
+  const normalized = phoneMatchKey(phone);
   if (normalized.length < 7) return { returning: false };
 
   const leads = await tx
@@ -86,4 +82,95 @@ export async function findReturningCallerContext(
   }
 
   return { returning: true, leadId: lead.id, context: parts.join(" ") };
+}
+
+export interface AssistantRequestCallerContext {
+  leadId: string;
+  callerName: string | null;
+  leadType: string | null;
+  latestAppointmentLabel: string | null;
+  assignedAgentName: string | null;
+  context: string | null;
+}
+
+const MAX_CONTEXT_CHARS = 220;
+
+/**
+ * Structured, minimal-payload version of findReturningCallerContext for the
+ * assistant-request webhook (see src/routes/assistantRequest.ts) — flat
+ * fields suitable for Vapi's assistantOverrides.variableValues (which are
+ * simple key/value strings, not nested JSON like a tool result). Excludes
+ * everything findReturningCallerContext already excludes (scores, stage,
+ * nurture tier, raw task titles), plus never returns a full transcript or
+ * call summary verbatim — `context` is capped and drawn only from the same
+ * caller-safe facts, not internal notes.
+ */
+export async function buildAssistantRequestContext(
+  tx: TenantScopedDb,
+  phone: string
+): Promise<AssistantRequestCallerContext | null> {
+  const normalized = phoneMatchKey(phone);
+  if (normalized.length < 7) return null;
+
+  const leads = await tx
+    .select()
+    .from(schema.leads)
+    .where(sql`right(regexp_replace(coalesce(${schema.leads.phone}, ''), '\D', '', 'g'), 10) = ${normalized}`)
+    .orderBy(desc(schema.leads.updatedAt))
+    .limit(1);
+
+  const lead = leads[0];
+  if (!lead) return null;
+
+  const now = new Date();
+  const [upcomingAppt] = await tx
+    .select()
+    .from(schema.appointments)
+    .where(
+      and(
+        eq(schema.appointments.leadId, lead.id),
+        gt(schema.appointments.slotStart, now),
+        eq(schema.appointments.status, "confirmed")
+      )
+    )
+    .orderBy(schema.appointments.slotStart)
+    .limit(1);
+
+  let assignedAgentName: string | null = null;
+  if (lead.assignedAgentId) {
+    const [agent] = await tx
+      .select({ fullName: schema.users.fullName, email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, lead.assignedAgentId));
+    assignedAgentName = agent ? agent.fullName || agent.email : null;
+  }
+
+  let latestAppointmentLabel: string | null = null;
+  if (upcomingAppt) {
+    const availability = await getTenantAvailability(tx, config.tenantId);
+    latestAppointmentLabel = describeLocalDateTime(upcomingAppt.slotStart, availability.timezone, now);
+  }
+
+  const contextParts: string[] = [];
+  if (lead.intent) contextParts.push(`Interested in ${lead.intent}.`);
+  const [lastCall] = await tx
+    .select({ summaryText: schema.calls.summaryText })
+    .from(schema.calls)
+    .where(eq(schema.calls.leadId, lead.id))
+    .orderBy(desc(schema.calls.startedAt))
+    .limit(1);
+  if (lastCall?.summaryText) contextParts.push(lastCall.summaryText);
+  const context = contextParts.length ? contextParts.join(" ").slice(0, MAX_CONTEXT_CHARS) : null;
+
+  return {
+    leadId: lead.id,
+    callerName: lead.callerName,
+    // `intent` sometimes holds a short category ("buyer") and sometimes a
+    // full callback-reason sentence (log_callback_request) — capped here so
+    // this stays a minimal field either way, consistent with `context`.
+    leadType: lead.intent ? lead.intent.slice(0, 60) : null,
+    latestAppointmentLabel,
+    assignedAgentName,
+    context,
+  };
 }

@@ -40,6 +40,12 @@ export const config = {
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
   googleRedirectUri: process.env.GOOGLE_REDIRECT_URI,
   googleTokenEncryptionKey: process.env.GOOGLE_TOKEN_ENCRYPTION_KEY,
+  // Off by default. Set only for the duration of a single deliberate test
+  // call validating assistant-request's timeout fallback (see
+  // src/routes/assistantRequest.ts) — forces the caller-history lookup to
+  // exceed its timeout so the real fallback path runs end-to-end, then
+  // unset immediately after. Never left on.
+  assistantRequestForceTimeout: (process.env.ASSISTANT_REQUEST_FORCE_TIMEOUT || "false").toLowerCase() === "true",
   get googleConfigured(): boolean {
     return Boolean(
       this.googleClientId && this.googleClientSecret && this.googleRedirectUri && this.googleTokenEncryptionKey

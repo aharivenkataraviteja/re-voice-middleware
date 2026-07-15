@@ -38,7 +38,22 @@ smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req,
         return { capped: true as const };
       }
 
-      const sent = TWILIO_CONFIGURED && !config.mockMode;
+      // No Twilio integration exists yet — TWILIO_CONFIGURED is always false
+      // in production today, so `sent` is always false and the catch below
+      // is currently unreachable. Structured this way (rather than a bare
+      // boolean) so the real Twilio call has an obvious place to go later,
+      // with failure handling (task creation) already wired to it instead
+      // of being bolted on afterward.
+      let sent = false;
+      let sendFailureReason: string | null = null;
+      if (TWILIO_CONFIGURED && !config.mockMode) {
+        try {
+          // TODO(Twilio): real send goes here, e.g. await twilioClient.messages.create({...})
+          sent = true;
+        } catch (err) {
+          sendFailureReason = err instanceof Error ? err.message : "unknown_error";
+        }
+      }
 
       const [entry] = await tx
         .insert(schema.smsLog)
@@ -51,6 +66,18 @@ smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req,
           sent,
         })
         .returning();
+
+      if (sendFailureReason) {
+        console.error(`[sms.send] real send FAILED to=${redactPhone(to)} template=${template_id} reason=${sendFailureReason}`);
+        await tx.insert(schema.tasks).values({
+          tenantId: config.tenantId,
+          leadId,
+          title: `SMS delivery failed (${template_id}) — confirm with caller directly`,
+          source: "call",
+          dueDate: new Date(),
+          status: "open",
+        });
+      }
 
       return { capped: false as const, entry, sent };
     });

@@ -22,6 +22,27 @@ const ASSISTANT_ID = "e97cb966-9cba-4449-908d-a6d9bbbcf5ef";
 // context is pure computation and always included regardless.
 const LOOKUP_TIMEOUT_MS = 2500;
 
+// Must stay byte-for-byte identical to the disclosure sentence in
+// vapi_system_prompt.md's IDENTITY & DISCLOSURE section — that section
+// still governs every OTHER call (unknown caller, lookup failure/timeout,
+// or if this override mechanism itself is ever rolled back). This is the
+// same mandatory sentence, just spoken deterministically instead of
+// model-generated for the one case (known returning caller) where the
+// model has repeatedly failed to reliably use caller_name/caller_returning
+// on its very first line — see DATE & TIME/S00_CALLER_LOOKUP prompt notes.
+const DISCLOSURE_SENTENCE =
+  "Hi, this is Alex, a virtual assistant with Luxury Partners Realty — this call may be recorded for quality and training purposes.";
+const MAX_NAME_CHARS = 40;
+
+// Deliberately name-only — no caller_context, no appointment/agent details.
+// Requirement: never expose previous-conversation specifics in the opening
+// line; the model can still bring in caller_context naturally later in the
+// conversation (see S00_CALLER_LOOKUP), just not here, and not verbatim.
+function buildReturningCallerGreeting(callerName: string): string {
+  const safeName = callerName.trim().slice(0, MAX_NAME_CHARS);
+  return `${DISCLOSURE_SENTENCE} Hi ${safeName}, welcome back to Luxury Partners Realty. How can I help you today?`;
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`lookup exceeded ${ms}ms`)), ms);
@@ -100,11 +121,26 @@ assistantRequestRouter.post("/vapi/assistant-request", verifyHmac(config.vapiWeb
     }
   }
 
+  // Requirement: for a known caller, construct the opening line
+  // deterministically rather than depend on the model choosing to use
+  // caller_returning/caller_name for its first utterance — observed
+  // unreliable across multiple real calls even with the data correctly
+  // present. Only when caller_returning is true AND a real name exists;
+  // unknown callers and lookup failures/timeouts fall through with no
+  // firstMessage override, so they get the assistant's normal
+  // model-generated disclosure + greeting exactly as before.
+  const assistantOverrides: Record<string, unknown> = { variableValues };
+  if (variableValues.caller_returning === "true" && variableValues.caller_name) {
+    assistantOverrides.firstMessage = buildReturningCallerGreeting(variableValues.caller_name);
+    assistantOverrides.firstMessageMode = "assistant-speaks-first";
+    console.log(`[assistant-request] deterministic_greeting_used call=${callId}`);
+  }
+
   const latencyMs = Date.now() - start;
   console.log(`[assistant-request] responding call=${callId} latency_ms=${latencyMs}`);
 
   res.status(200).json({
     assistantId: ASSISTANT_ID,
-    assistantOverrides: { variableValues },
+    assistantOverrides,
   });
 });

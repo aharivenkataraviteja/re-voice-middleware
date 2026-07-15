@@ -15,7 +15,10 @@ const MAX_SMS_PER_CALL = 2;
 
 smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
   const { toolCallId, args, realCallId, callerNumber } = extractToolCall(req);
-  const { to, template_id, session_id } = args;
+  const { to: llmTo, template_id, session_id } = args;
+  // Same fallback as book_appointment/log_callback_request — don't require
+  // the LLM to re-supply a number it may reasonably assume is already known.
+  const to = llmTo || callerNumber;
   if (!to || !template_id || !session_id) {
     return sendToolError(res, toolCallId, "to, template_id, and session_id are required");
   }

@@ -164,12 +164,21 @@ calendarRouter.post("/tools/calendar/book", verifyHmac(config.vapiToolSecret), a
     appointment_type,
     format,
     attendee_name,
-    attendee_phone,
+    attendee_phone: llmAttendeePhone,
     attendee_email,
     agent_id,
     session_id,
     notes,
   } = args;
+
+  // The LLM doesn't always re-ask for/re-supply a phone number once it
+  // already recognizes the caller (observed in a real reschedule call —
+  // book_appointment failed with "missing required booking fields" because
+  // attendee_phone was simply absent from the arguments, even though the
+  // caller's real number was sitting right there in the webhook envelope
+  // the whole time). Same "derive, don't require from the LLM" fallback
+  // already used for the call ID.
+  const attendee_phone = llmAttendeePhone || callerNumber;
 
   if (!slot_start || !appointment_type || !attendee_name || !attendee_phone || !session_id) {
     return sendToolError(res, toolCallId, "missing required booking fields");
@@ -295,7 +304,13 @@ calendarRouter.post(
   verifyHmac(config.vapiToolSecret),
   async (req, res, next) => {
     const { toolCallId, args, realCallId, callerNumber } = extractToolCall(req);
-    const { caller_name, phone, email, preferred_day_time, reason, session_id } = args;
+    const { caller_name, phone: llmPhone, email, preferred_day_time, reason, session_id } = args;
+    // Same fallback as book_appointment — the LLM doesn't always re-supply a
+    // phone number once it already recognizes the caller (observed: an
+    // empty phone argument on this exact tool in a real call, which this
+    // route's own validation below then silently rejected — the caller's
+    // callback request was never actually logged).
+    const phone = llmPhone || callerNumber;
 
     if (!phone || !reason || !session_id) {
       return sendToolError(res, toolCallId, "phone, reason, and session_id are required");

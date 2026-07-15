@@ -43,13 +43,29 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
   const { toolCallId, args } = extractToolCall(req);
   const { agent_id, caller_timezone, requested_date } = args;
 
-  // requested_date must already be a resolved ISO date (see
+  // requested_date should already be a resolved ISO date (see
   // vapi_system_prompt.md's DATE & TIME RESOLUTION section — Alex resolves
   // relative phrases like "this Thursday" against date_context from
   // lookup_caller_history and passes the concrete date here, never a phrase).
-  // An unparseable value is ignored rather than failing the whole lookup —
-  // falls back to the original "next 7 days" behavior.
-  const hasRequestedDate = typeof requested_date === "string" && ISO_DATE_PATTERN.test(requested_date);
+  // In practice the model doesn't reliably do this — observed in production
+  // sending a plausible-looking but wrong-year ISO date (its own guess, not
+  // date_context) when the lookup tool hadn't fired. A value outside a sane
+  // near-term booking window is exactly what that failure mode produces, so
+  // it's treated the same as no date at all (falls back to the "next 7 days"
+  // window) rather than searching a real calendar against a nonsense date
+  // and reporting zero availability as if scheduling were actually down.
+  const requestedDateInWindow = (() => {
+    if (typeof requested_date !== "string" || !ISO_DATE_PATTERN.test(requested_date)) return false;
+    const parsed = Date.parse(`${requested_date}T00:00:00Z`);
+    if (Number.isNaN(parsed)) return false;
+    const now = Date.now();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    return parsed >= now - DAY_MS && parsed <= now + 120 * DAY_MS;
+  })();
+  if (typeof requested_date === "string" && !requestedDateInWindow) {
+    console.warn(`[calendar.availability] ignoring implausible requested_date="${requested_date}" (not within [today-1d, today+120d]) — falling back to default window`);
+  }
+  const hasRequestedDate = requestedDateInWindow;
 
   try {
     const result = await withTenant(config.tenantId, async (tx) => {

@@ -3,10 +3,23 @@ const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, 
 // No moment/date-fns-tz dependency needed — Intl.DateTimeFormat with a
 // timeZone option gives correct wall-clock hour/weekday for an instant in
 // any IANA zone using only what Node already ships.
-function hourInTimezone(date: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hour12: false }).formatToParts(date);
-  const hour = parts.find((p) => p.type === "hour")?.value;
-  return hour ? parseInt(hour, 10) % 24 : date.getUTCHours();
+//
+// Minutes-since-midnight, not just the hour — a real close time like
+// "17:30" truncated to hour 17 would incorrectly treat the entire 17:00
+// slot as open (its 60-minute end at 18:00 actually runs an hour past
+// close). Comparing full minutes on both the slot's start and end catches
+// this; comparing only integer hours can't.
+function minutesInTimezone(date: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "numeric", hour12: false }).formatToParts(date);
+  const hour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "", 10);
+  const minute = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+  if (Number.isNaN(hour)) return date.getUTCHours() * 60 + date.getUTCMinutes();
+  return (hour % 24) * 60 + minute;
+}
+
+function parseTimeToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map((n) => parseInt(n, 10));
+  return h * 60 + (m || 0);
 }
 
 function weekdayInTimezone(date: Date, timeZone: string): number {
@@ -38,8 +51,8 @@ export interface SlotGenerationOptions {
 // confirmed are free.
 export function generateAvailableSlots(options: SlotGenerationOptions): Date[] {
   const { timeMin, timeMax, timeZone, businessHours, busy, durationMinutes = 60, maxSlots = 2 } = options;
-  const startHour = parseInt(businessHours.start.split(":")[0], 10);
-  const endHour = parseInt(businessHours.end.split(":")[0], 10);
+  const startMinutes = parseTimeToMinutes(businessHours.start);
+  const endMinutes = parseTimeToMinutes(businessHours.end);
   const busyRanges = busy.map((b) => ({ start: new Date(b.start).getTime(), end: new Date(b.end).getTime() }));
 
   const slots: Date[] = [];
@@ -47,10 +60,11 @@ export function generateAvailableSlots(options: SlotGenerationOptions): Date[] {
   let cursor = new Date(Math.ceil(timeMin.getTime() / stepMs) * stepMs);
 
   while (cursor < timeMax && slots.length < maxSlots) {
-    const hour = hourInTimezone(cursor, timeZone);
     const weekday = weekdayInTimezone(cursor, timeZone);
+    const slotStartMinutes = minutesInTimezone(cursor, timeZone);
+    const slotEndMinutes = slotStartMinutes + durationMinutes;
 
-    if (businessHours.days.includes(weekday) && hour >= startHour && hour < endHour) {
+    if (businessHours.days.includes(weekday) && slotStartMinutes >= startMinutes && slotEndMinutes <= endMinutes) {
       const slotEnd = new Date(cursor.getTime() + durationMinutes * 60 * 1000);
       const overlapsBusy = busyRanges.some((b) => cursor.getTime() < b.end && slotEnd.getTime() > b.start);
       if (!overlapsBusy) {

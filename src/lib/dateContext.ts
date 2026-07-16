@@ -100,10 +100,17 @@ export function computeDateContext(now: Date, timezone: string, businessHours: B
   const todayIdx = localWeekdayIndex(now, timezone);
   const localWeekday = WEEKDAY_NAMES[todayIdx];
 
-  const startHour = parseInt(businessHours.start.split(":")[0], 10);
-  const endHour = parseInt(businessHours.end.split(":")[0], 10);
-  const localHour = parseInt(localTime.split(":")[0], 10);
-  const officeHoursOpen = businessHours.days.includes(todayIdx) && localHour >= startHour && localHour < endHour;
+  // Minutes, not just the hour — truncating "17:30" to hour 17 would report
+  // closed for the entire 17:00-17:29 window when the office is actually
+  // still open until 17:30.
+  const toMinutes = (hhmm: string) => {
+    const [h, m] = hhmm.split(":").map((n) => parseInt(n, 10));
+    return h * 60 + (m || 0);
+  };
+  const startMinutes = toMinutes(businessHours.start);
+  const endMinutes = toMinutes(businessHours.end);
+  const localMinutes = toMinutes(localTime);
+  const officeHoursOpen = businessHours.days.includes(todayIdx) && localMinutes >= startMinutes && localMinutes < endMinutes;
 
   const weekdays: WeekdayResolution[] = WEEKDAY_NAMES.map((name, idx) => {
     const diff = idx - todayIdx;

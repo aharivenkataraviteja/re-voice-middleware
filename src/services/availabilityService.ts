@@ -11,7 +11,9 @@ export interface TenantAvailability {
 
 export const DEFAULT_AVAILABILITY: TenantAvailability = {
   timezone: "America/New_York",
-  businessHours: { start: "09:00", end: "18:00", days: [1, 2, 3, 4, 5] },
+  // Luxury Partners Realty's real hours: 9:00 AM–5:30 PM, Monday–Friday
+  // (days: 1=Mon..5=Fri, so weekends are already excluded here).
+  businessHours: { start: "09:00", end: "17:30", days: [1, 2, 3, 4, 5] },
   bufferMinutes: 15,
   maxPerDay: 3,
 };

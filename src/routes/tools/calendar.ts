@@ -81,9 +81,16 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
         // day boundaries applied afterward via localDateString — casting a
         // wide net first and filtering precisely after avoids needing a
         // separate UTC-offset/DST calculation just to find local midnight.
+        // Never below "now" — observed in a real call: with requested_date
+        // equal to today, this wide net's lower bound (yesterday) let slots
+        // generate from the start of today regardless of the actual current
+        // time, offering appointment times already in the past (e.g. 9 AM
+        // slots offered as available at 1 PM). The exact-date filter below
+        // only checks the calendar day, not that the slot is still ahead of
+        // right now.
         const [y, m, d] = requested_date.split("-").map(Number);
         const centerUtc = Date.UTC(y, m - 1, d);
-        timeMin = new Date(centerUtc - 24 * 60 * 60 * 1000);
+        timeMin = new Date(Math.max(centerUtc - 24 * 60 * 60 * 1000, Date.now()));
         timeMax = new Date(centerUtc + 48 * 60 * 60 * 1000);
       } else {
         timeMin = new Date();

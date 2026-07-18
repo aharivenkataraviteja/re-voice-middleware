@@ -174,9 +174,33 @@ export async function saveConnection(
   }
 }
 
+// Distinguishes "the refresh token itself is dead — a human must go through
+// Google's consent screen again" from every other kind of Google API
+// failure (network blip, rate limit, transient 5xx). Observed in
+// production: a single expired-token incident (invalid_grant) was
+// indistinguishable, in the old code, from a one-off network hiccup — both
+// flipped the dashboard to "Needs reconnect." That's a false alarm for
+// anything transient, and reconnecting doesn't fix a transient failure
+// anyway. Only a genuine auth-layer signal (invalid_grant/invalid_client/
+// unauthorized_client from the token endpoint, or a bare 401) should ever
+// tell an agent they need to click through Google's consent screen again.
+export function isReconnectRequiredError(err: unknown): boolean {
+  const anyErr = err as any;
+  const oauthErrorCode: string | undefined = anyErr?.response?.data?.error;
+  if (oauthErrorCode && ["invalid_grant", "invalid_client", "unauthorized_client"].includes(oauthErrorCode)) {
+    return true;
+  }
+  if (anyErr?.response?.status === 401 || anyErr?.code === 401) {
+    return true;
+  }
+  const message: string = anyErr?.message || "";
+  return /invalid_grant|invalid_client|unauthorized_client|token has been expired or revoked/i.test(message);
+}
+
 // Marks a connection as needing reconnect without deleting history — surfaced
 // on the dashboard so an agent knows to reconnect rather than silently
-// falling back to the callback safety net forever.
+// falling back to the callback safety net forever. Callers should gate this
+// behind isReconnectRequiredError — see its comment for why.
 export async function markConnectionError(tx: TenantScopedDb, agentId: string, message: string) {
   await tx
     .update(schema.calendarConnections)

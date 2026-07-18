@@ -15,6 +15,7 @@ import {
   checkFreeBusy,
   createCalendarEvent,
   markConnectionError,
+  isReconnectRequiredError,
 } from "../../services/googleCalendarService";
 import { extractToolCall, resolveCallId, sendToolResult, sendToolError } from "../../lib/vapiTool";
 
@@ -113,7 +114,12 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
         return { connected: true as const, agentId: connection.agentId, slots, timeZone };
       } catch (err) {
         console.error(`[calendar.availability] Google API failure for agent=${connection.agentId}`, err);
-        await markConnectionError(tx, connection.agentId, err instanceof Error ? err.message : "unknown_error");
+        // Only flip the dashboard to "Needs reconnect" for a genuine
+        // auth-layer failure — a transient network/rate-limit error isn't
+        // fixed by reconnecting and shouldn't tell an agent it is.
+        if (isReconnectRequiredError(err)) {
+          await markConnectionError(tx, connection.agentId, err instanceof Error ? err.message : "unknown_error");
+        }
         return { connected: true as const, agentId: connection.agentId, slots: null, timeZone };
       }
     });
@@ -242,7 +248,9 @@ calendarRouter.post("/tools/calendar/book", verifyHmac(config.vapiToolSecret), a
           });
         } catch (err) {
           console.error(`[calendar.book] Google event creation failed for agent=${connection.agentId}`, err);
-          await markConnectionError(tx, connection.agentId, err instanceof Error ? err.message : "unknown_error");
+          if (isReconnectRequiredError(err)) {
+            await markConnectionError(tx, connection.agentId, err instanceof Error ? err.message : "unknown_error");
+          }
           // Do not silently fall back to a mock booking here — a caller was
           // just told this specific time is confirmed. Surface the failure
           // so Alex's S09B_CAL_FAIL fallback (book_appointment failing after

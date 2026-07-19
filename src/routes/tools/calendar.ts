@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import { verifyHmac } from "../../hmac";
 import { config } from "../../config";
 import { withTenant } from "../../db/client";
@@ -14,6 +14,7 @@ import {
   getAnyConnectedAgentId,
   checkFreeBusy,
   createCalendarEvent,
+  deleteCalendarEvent,
   markConnectionError,
   isReconnectRequiredError,
 } from "../../services/googleCalendarService";
@@ -330,6 +331,52 @@ calendarRouter.post("/tools/calendar/book", verifyHmac(config.vapiToolSecret), a
         }
       } else if (!config.mockMode) {
         return { failed: true as const };
+      }
+
+      // A caller booking a new time always supersedes whatever they already
+      // had confirmed — book_appointment is also how "reschedule" works
+      // (there's no separate reschedule tool; Alex just calls this again).
+      // Without this, a real reschedule call left the old appointment
+      // sitting in the database as if it were still happening, alongside
+      // the new one — visible as two separate confirmed bookings on the
+      // dashboard for the same lead when only one was ever intended. This
+      // runs only now, after the new booking is confirmed to succeed — if
+      // it ran earlier and Google event creation above then failed, the
+      // caller would lose their original appointment for nothing.
+      const existingUpcoming = await tx
+        .select()
+        .from(schema.appointments)
+        .where(
+          and(
+            eq(schema.appointments.leadId, leadId),
+            eq(schema.appointments.status, "confirmed"),
+            gt(schema.appointments.slotStart, new Date())
+          )
+        );
+      for (const prior of existingUpcoming) {
+        if (prior.googleEventId && connection) {
+          try {
+            await deleteCalendarEvent(connection, prior.googleEventId);
+          } catch (err) {
+            // Best-effort — a stale/already-removed event on Google's side
+            // must never block the new booking. The DB status update below
+            // is what actually matters for the dashboard and for future
+            // freebusy checks.
+            console.warn(`[calendar.book] failed to delete superseded Google event=${prior.googleEventId}`, err);
+          }
+        }
+      }
+      if (existingUpcoming.length > 0) {
+        await tx
+          .update(schema.appointments)
+          .set({ status: "cancelled" })
+          .where(
+            and(
+              eq(schema.appointments.leadId, leadId),
+              eq(schema.appointments.status, "confirmed"),
+              gt(schema.appointments.slotStart, new Date())
+            )
+          );
       }
 
       const [appointment] = await tx

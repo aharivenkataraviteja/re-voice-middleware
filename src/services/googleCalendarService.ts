@@ -138,6 +138,20 @@ export async function createCalendarEvent(
   return res.data.id;
 }
 
+// Used when a new booking supersedes an existing one (a reschedule) — see
+// calendar.ts book_appointment. Google soft-deletes (the event's status
+// flips to "cancelled" rather than disappearing outright, confirmed
+// behavior during the OAuth reconnect verification), which is exactly what
+// a successful delete looks like from the calendar owner's point of view.
+export async function deleteCalendarEvent(
+  connection: typeof schema.calendarConnections.$inferSelect,
+  eventId: string
+): Promise<void> {
+  const client = await getAuthorizedClient(connection);
+  const calendar = google.calendar({ version: "v3", auth: client });
+  await calendar.events.delete({ calendarId: connection.calendarId, eventId });
+}
+
 // Encrypts and upserts a connection row after a successful OAuth exchange.
 export async function saveConnection(
   tx: TenantScopedDb,

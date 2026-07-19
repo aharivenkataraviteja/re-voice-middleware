@@ -6,7 +6,7 @@ import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
 import { findOrCreateLeadForSession } from "../../services/leadService";
 import { getTenantAvailability, DEFAULT_AVAILABILITY } from "../../services/availabilityService";
-import { generateAvailableSlots } from "../../lib/slotGeneration";
+import { generateAvailableSlots, isTimeOfDay } from "../../lib/slotGeneration";
 import { localDateString, describeLocalDateTime } from "../../lib/dateContext";
 import { toE164 } from "../../lib/phone";
 import {
@@ -42,7 +42,8 @@ async function resolveConnectedAgent(tx: Parameters<typeof getConnection>[0], re
 
 calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
   const { toolCallId, args } = extractToolCall(req);
-  const { agent_id, caller_timezone, requested_date } = args;
+  const { agent_id, caller_timezone, requested_date, time_of_day } = args;
+  const timeOfDay = isTimeOfDay(time_of_day) ? time_of_day : undefined;
 
   // requested_date should already be a resolved ISO date (see
   // vapi_system_prompt.md's DATE & TIME RESOLUTION section — Alex resolves
@@ -100,18 +101,41 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
 
       try {
         const busy = await checkFreeBusy(connection, timeMin, timeMax);
-        let slots = generateAvailableSlots({
-          timeMin,
-          timeMax,
-          timeZone,
-          businessHours: availability.businessHours,
-          busy,
-          maxSlots: hasRequestedDate ? 20 : 2, // wide net first, trimmed to 2 after the exact-date filter below
-        });
+        const genSlots = (tod: typeof timeOfDay) =>
+          generateAvailableSlots({
+            timeMin,
+            timeMax,
+            timeZone,
+            businessHours: availability.businessHours,
+            busy,
+            maxSlots: hasRequestedDate ? 20 : 2, // wide net first, trimmed to 2 after the exact-date filter below
+            timeOfDay: tod,
+          });
+
+        let slots = genSlots(timeOfDay);
         if (hasRequestedDate) {
           slots = slots.filter((s) => localDateString(s, timeZone) === requested_date).slice(0, 2);
         }
-        return { connected: true as const, agentId: connection.agentId, slots, timeZone };
+
+        // A caller asking for "evening" against a brokerage that closes at
+        // 5:30pm will often get zero matches — observed in a real call where
+        // the tool silently returned 9/10 AM slots instead, and Alex handed
+        // them over with no acknowledgment that they didn't match what was
+        // asked. If the preferred window comes up empty, fall back to the
+        // earliest slots regardless of preference, but flag it so Alex is
+        // required to say so honestly (see S09_APPT_SET) instead of
+        // presenting them as if they matched.
+        let timeOfDayMatched = true;
+        if (timeOfDay && slots.length === 0) {
+          timeOfDayMatched = false;
+          let fallback = genSlots(undefined);
+          if (hasRequestedDate) {
+            fallback = fallback.filter((s) => localDateString(s, timeZone) === requested_date).slice(0, 2);
+          }
+          slots = fallback;
+        }
+
+        return { connected: true as const, agentId: connection.agentId, slots, timeZone, timeOfDay, timeOfDayMatched };
       } catch (err) {
         console.error(`[calendar.availability] Google API failure for agent=${connection.agentId}`, err);
         // Only flip the dashboard to "Needs reconnect" for a genuine
@@ -164,6 +188,12 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
       agent_id: result.agentId,
       resolved_date: hasRequestedDate ? requested_date : undefined,
       timezone: result.timeZone,
+      // See S09_APPT_SET — when a time_of_day was requested but nothing
+      // matched, these slots are the closest fallback, NOT a match for what
+      // the caller asked for. Alex must say so explicitly, never present
+      // them as if they satisfied the preference.
+      time_of_day_requested: result.timeOfDay,
+      time_of_day_matched: result.timeOfDay ? result.timeOfDayMatched : undefined,
     });
   } catch (err) {
     next(err);

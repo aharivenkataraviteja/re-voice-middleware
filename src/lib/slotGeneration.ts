@@ -33,6 +33,24 @@ export interface BusyPeriod {
   end: string;
 }
 
+// Real-world ranges, intersected with actual business hours below — not
+// promises that slots exist in these windows. A brokerage closing at 17:30
+// genuinely has almost no "evening" inventory; that's a fact about its
+// hours, not a bug in this range definition, and callers must be told that
+// honestly (see the noMatchInTimeOfDay flag) rather than silently handed
+// morning slots instead.
+const TIME_OF_DAY_RANGES: Record<string, { startMinutes: number; endMinutes: number }> = {
+  morning: { startMinutes: 0, endMinutes: 12 * 60 },
+  afternoon: { startMinutes: 12 * 60, endMinutes: 17 * 60 },
+  evening: { startMinutes: 17 * 60, endMinutes: 24 * 60 },
+};
+
+export type TimeOfDay = keyof typeof TIME_OF_DAY_RANGES;
+
+export function isTimeOfDay(value: unknown): value is TimeOfDay {
+  return typeof value === "string" && value in TIME_OF_DAY_RANGES;
+}
+
 export interface SlotGenerationOptions {
   timeMin: Date;
   timeMax: Date;
@@ -41,6 +59,7 @@ export interface SlotGenerationOptions {
   busy: BusyPeriod[];
   durationMinutes?: number;
   maxSlots?: number;
+  timeOfDay?: TimeOfDay;
 }
 
 // Walks hour-by-hour from timeMin to timeMax, keeps only slots inside the
@@ -48,11 +67,14 @@ export interface SlotGenerationOptions {
 // not server-local time) that don't overlap any real busy period from
 // Google's freebusy response. Never returns more than maxSlots — Alex is
 // only ever allowed to offer two options, and only ones Google has actually
-// confirmed are free.
+// confirmed are free. When timeOfDay is given, only slots whose full
+// duration falls within that window are considered at all — a caller who
+// asked for "evening" must never be handed a 9 AM slot with no comment.
 export function generateAvailableSlots(options: SlotGenerationOptions): Date[] {
-  const { timeMin, timeMax, timeZone, businessHours, busy, durationMinutes = 60, maxSlots = 2 } = options;
+  const { timeMin, timeMax, timeZone, businessHours, busy, durationMinutes = 60, maxSlots = 2, timeOfDay } = options;
   const startMinutes = parseTimeToMinutes(businessHours.start);
   const endMinutes = parseTimeToMinutes(businessHours.end);
+  const preferred = timeOfDay ? TIME_OF_DAY_RANGES[timeOfDay] : null;
   const busyRanges = busy.map((b) => ({ start: new Date(b.start).getTime(), end: new Date(b.end).getTime() }));
 
   const slots: Date[] = [];
@@ -64,7 +86,12 @@ export function generateAvailableSlots(options: SlotGenerationOptions): Date[] {
     const slotStartMinutes = minutesInTimezone(cursor, timeZone);
     const slotEndMinutes = slotStartMinutes + durationMinutes;
 
-    if (businessHours.days.includes(weekday) && slotStartMinutes >= startMinutes && slotEndMinutes <= endMinutes) {
+    const withinBusinessHours =
+      businessHours.days.includes(weekday) && slotStartMinutes >= startMinutes && slotEndMinutes <= endMinutes;
+    const withinPreference =
+      !preferred || (slotStartMinutes >= preferred.startMinutes && slotStartMinutes < preferred.endMinutes);
+
+    if (withinBusinessHours && withinPreference) {
       const slotEnd = new Date(cursor.getTime() + durationMinutes * 60 * 1000);
       const overlapsBusy = busyRanges.some((b) => cursor.getTime() < b.end && slotEnd.getTime() > b.start);
       if (!overlapsBusy) {

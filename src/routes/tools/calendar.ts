@@ -256,12 +256,19 @@ calendarRouter.post("/tools/calendar/book", verifyHmac(config.vapiToolSecret), a
   // the whole time). Same "derive, don't require from the LLM" fallback
   // already used for the call ID.
   const attendee_phone = llmAttendeePhone || callerNumber;
+  // Resolve BEFORE validating — resolveCallId always returns a real,
+  // non-empty ID as long as the webhook envelope has message.call.id
+  // (true for every real inbound call). Validating the LLM's raw
+  // session_id first defeats that fallback entirely: observed in a real
+  // call where the LLM sent session_id="" (empty string, not merely
+  // missing) and the whole booking was rejected as "missing required
+  // fields" before resolveCallId ever ran — silently dropping a caller's
+  // reschedule request with no trace in the database at all.
+  const callId = resolveCallId(realCallId, session_id, "book_appointment");
 
-  if (!slot_start || !appointment_type || !attendee_name || !attendee_phone || !session_id) {
+  if (!slot_start || !appointment_type || !attendee_name || !attendee_phone) {
     return sendToolError(res, toolCallId, "missing required booking fields");
   }
-
-  const callId = resolveCallId(realCallId, session_id, "book_appointment");
   // The webhook envelope's own customer.number is authoritative for phone
   // storage/matching (see leadService's dedup-by-phone) — attendee_phone is
   // whatever the LLM transcribed from speech and is only used as a fallback
@@ -390,12 +397,16 @@ calendarRouter.post(
     // route's own validation below then silently rejected — the caller's
     // callback request was never actually logged).
     const phone = llmPhone || callerNumber;
+    // Resolve BEFORE validating — see book_appointment's comment above.
+    // Same real-call bug hit this route too: session_id="" (empty string)
+    // silently killed a caller's reschedule-fallback request, so nothing —
+    // not even a task — was ever logged for the team to follow up on.
+    const callId = resolveCallId(realCallId, session_id, "log_callback_request");
 
-    if (!phone || !reason || !session_id) {
-      return sendToolError(res, toolCallId, "phone, reason, and session_id are required");
+    if (!phone || !reason) {
+      return sendToolError(res, toolCallId, "phone and reason are required");
     }
 
-    const callId = resolveCallId(realCallId, session_id, "log_callback_request");
     const normalizedPhone = toE164(callerNumber || phone) || phone;
 
     try {

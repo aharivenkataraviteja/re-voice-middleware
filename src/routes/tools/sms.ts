@@ -19,14 +19,15 @@ smsRouter.post("/tools/sms/send", verifyHmac(config.vapiToolSecret), async (req,
   // Same fallback as book_appointment/log_callback_request — don't require
   // the LLM to re-supply a number it may reasonably assume is already known.
   const to = llmTo || callerNumber;
-  if (!to || !template_id || !session_id) {
-    return sendToolError(res, toolCallId, "to, template_id, and session_id are required");
-  }
-
-  // Using the real call ID (not the LLM's session_id) as the smsLog key is
-  // what makes MAX_SMS_PER_CALL actually per-call — previously every call
-  // shared the same fabricated session_id, so this cap was silently global.
+  // Resolve BEFORE validating — see calendar.ts book_appointment's comment
+  // for why (session_id="" from the LLM must never block a real call from
+  // deriving the real call ID via resolveCallId). Also what makes
+  // MAX_SMS_PER_CALL actually per-call — previously every call could share
+  // the same fabricated session_id, so this cap was silently global.
   const callId = resolveCallId(realCallId, session_id, "send_sms");
+  if (!to || !template_id) {
+    return sendToolError(res, toolCallId, "to and template_id are required");
+  }
 
   try {
     const result = await withTenant(config.tenantId, async (tx) => {

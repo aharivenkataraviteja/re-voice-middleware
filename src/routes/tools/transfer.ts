@@ -11,11 +11,13 @@ export const transferRouter = Router();
 transferRouter.post("/tools/call/transfer", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
   const { toolCallId, args, realCallId, callerNumber } = extractToolCall(req);
   const { transfer_type, target, escalation_reason, context_summary, session_id } = args;
-  if (!transfer_type || !target || !escalation_reason || !session_id) {
-    return sendToolError(res, toolCallId, "transfer_type, target, escalation_reason, and session_id are required");
-  }
-
+  // Resolve BEFORE validating — see calendar.ts book_appointment's comment
+  // for why (an LLM-supplied session_id="" must never block deriving the
+  // real call ID via resolveCallId).
   const callId = resolveCallId(realCallId, session_id, "transfer_call");
+  if (!transfer_type || !target || !escalation_reason) {
+    return sendToolError(res, toolCallId, "transfer_type, target, and escalation_reason are required");
+  }
 
   try {
     // No live human-agent routing configured yet — creates an urgent

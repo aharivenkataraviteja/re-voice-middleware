@@ -35,11 +35,14 @@ function extractSignals(fields: Record<string, unknown> | undefined): RawLeadSig
 crmRouter.post("/tools/crm/update", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
   const { toolCallId, args, realCallId, callerNumber } = extractToolCall(req);
   const { session_id, action, fields, activity } = args;
-  if (!session_id || !action) {
-    return sendToolError(res, toolCallId, "session_id and action are required");
-  }
-
+  // Resolve BEFORE validating — see calendar.ts book_appointment's comment
+  // for why: validating the LLM's raw session_id first defeats
+  // resolveCallId's fallback (a real call sent session_id="" and this
+  // route rejected the whole update before ever deriving the real call ID).
   const callId = resolveCallId(realCallId, session_id, "update_crm_lead");
+  if (!action) {
+    return sendToolError(res, toolCallId, "action is required");
+  }
 
   try {
     const result = await withTenant(config.tenantId, async (tx) => {

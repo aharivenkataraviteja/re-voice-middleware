@@ -6,7 +6,7 @@ import { withTenant } from "../../db/client";
 import * as schema from "../../db/schema";
 import { findOrCreateLeadForSession } from "../../services/leadService";
 import { getTenantAvailability, DEFAULT_AVAILABILITY } from "../../services/availabilityService";
-import { generateAvailableSlots, isTimeOfDay } from "../../lib/slotGeneration";
+import { generateAvailableSlots, isTimeOfDay, timeOfDayRangeFor, timeOfDayBucketFor, parseTimeToMinutes, TIME_HHMM_PATTERN } from "../../lib/slotGeneration";
 import { localDateString, describeLocalDateTime } from "../../lib/dateContext";
 import { toE164 } from "../../lib/phone";
 import {
@@ -42,8 +42,17 @@ async function resolveConnectedAgent(tx: Parameters<typeof getConnection>[0], re
 
 calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSecret), async (req, res, next) => {
   const { toolCallId, args } = extractToolCall(req);
-  const { agent_id, caller_timezone, requested_date, time_of_day } = args;
+  const { agent_id, caller_timezone, requested_date, time_of_day, requested_time } = args;
   const timeOfDay = isTimeOfDay(time_of_day) ? time_of_day : undefined;
+  // An exact clock time ("2 PM" -> "14:00") takes priority over a vague
+  // time_of_day word when both are somehow present — checked for the exact
+  // requested minute first, falling back to the bucket containing it (not
+  // the whole day) if that precise slot isn't free. Since slots only ever
+  // land on the hour (see generateAvailableSlots), a non-hour requested_time
+  // (e.g. "14:30") will correctly never match anything — there's nothing to
+  // silently round to.
+  const requestedTimeMinutes =
+    typeof requested_time === "string" && TIME_HHMM_PATTERN.test(requested_time) ? parseTimeToMinutes(requested_time) : undefined;
 
   // requested_date should already be a resolved ISO date (see
   // vapi_system_prompt.md's DATE & TIME RESOLUTION section — Alex resolves
@@ -101,41 +110,64 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
 
       try {
         const busy = await checkFreeBusy(connection, timeMin, timeMax);
-        const genSlots = (tod: typeof timeOfDay) =>
-          generateAvailableSlots({
+        const genSlots = (range: { startMinutes: number; endMinutes: number } | undefined) => {
+          let s = generateAvailableSlots({
             timeMin,
             timeMax,
             timeZone,
             businessHours: availability.businessHours,
             busy,
             maxSlots: hasRequestedDate ? 20 : 2, // wide net first, trimmed to 2 after the exact-date filter below
-            timeOfDay: tod,
+            preferredRange: range,
           });
-
-        let slots = genSlots(timeOfDay);
-        if (hasRequestedDate) {
-          slots = slots.filter((s) => localDateString(s, timeZone) === requested_date).slice(0, 2);
-        }
-
-        // A caller asking for "evening" against a brokerage that closes at
-        // 5:30pm will often get zero matches — observed in a real call where
-        // the tool silently returned 9/10 AM slots instead, and Alex handed
-        // them over with no acknowledgment that they didn't match what was
-        // asked. If the preferred window comes up empty, fall back to the
-        // earliest slots regardless of preference, but flag it so Alex is
-        // required to say so honestly (see S09_APPT_SET) instead of
-        // presenting them as if they matched.
-        let timeOfDayMatched = true;
-        if (timeOfDay && slots.length === 0) {
-          timeOfDayMatched = false;
-          let fallback = genSlots(undefined);
           if (hasRequestedDate) {
-            fallback = fallback.filter((s) => localDateString(s, timeZone) === requested_date).slice(0, 2);
+            s = s.filter((x) => localDateString(x, timeZone) === requested_date).slice(0, 2);
           }
-          slots = fallback;
+          return s;
+        };
+
+        // Three-tier search, each tier only tried if the previous one came
+        // up empty — never silently jump straight to "earliest of the day"
+        // (observed in a real call: caller asked for 2 PM Tuesday, got told
+        // "our latest options are 9 AM or 10 AM," which was only true
+        // because nothing later had actually been checked).
+        // Tier 1: the exact requested clock time, if one was given.
+        // Tier 2: the broader part-of-day bucket containing either the exact
+        //         time or the stated time_of_day word.
+        // Tier 3: no preference at all — truly the earliest slots that day.
+        let slots: Date[] = [];
+        let requestedTimeMatched: boolean | undefined;
+        let effectiveTimeOfDay = timeOfDay;
+
+        if (requestedTimeMinutes !== undefined) {
+          slots = genSlots({ startMinutes: requestedTimeMinutes, endMinutes: requestedTimeMinutes + 1 });
+          requestedTimeMatched = slots.length > 0;
+          if (!requestedTimeMatched) {
+            effectiveTimeOfDay = timeOfDayBucketFor(requestedTimeMinutes);
+          }
         }
 
-        return { connected: true as const, agentId: connection.agentId, slots, timeZone, timeOfDay, timeOfDayMatched };
+        let timeOfDayMatched = true;
+        if (slots.length === 0 && effectiveTimeOfDay) {
+          slots = genSlots(timeOfDayRangeFor(effectiveTimeOfDay));
+          timeOfDayMatched = slots.length > 0;
+        }
+
+        if (slots.length === 0) {
+          timeOfDayMatched = requestedTimeMinutes !== undefined || timeOfDay ? false : true;
+          slots = genSlots(undefined);
+        }
+
+        return {
+          connected: true as const,
+          agentId: connection.agentId,
+          slots,
+          timeZone,
+          timeOfDay: effectiveTimeOfDay,
+          timeOfDayMatched,
+          requestedTimeMinutes,
+          requestedTimeMatched,
+        };
       } catch (err) {
         console.error(`[calendar.availability] Google API failure for agent=${connection.agentId}`, err);
         // Only flip the dashboard to "Needs reconnect" for a genuine
@@ -188,12 +220,14 @@ calendarRouter.post("/tools/calendar/availability", verifyHmac(config.vapiToolSe
       agent_id: result.agentId,
       resolved_date: hasRequestedDate ? requested_date : undefined,
       timezone: result.timeZone,
-      // See S09_APPT_SET — when a time_of_day was requested but nothing
-      // matched, these slots are the closest fallback, NOT a match for what
-      // the caller asked for. Alex must say so explicitly, never present
-      // them as if they satisfied the preference.
+      // See S09_APPT_SET — when a time_of_day (or exact requested_time) was
+      // requested but nothing matched, these slots are the closest fallback,
+      // NOT a match for what the caller asked for. Alex must say so
+      // explicitly, never present them as if they satisfied the preference.
       time_of_day_requested: result.timeOfDay,
       time_of_day_matched: result.timeOfDay ? result.timeOfDayMatched : undefined,
+      requested_time,
+      requested_time_matched: result.requestedTimeMinutes !== undefined ? result.requestedTimeMatched : undefined,
     });
   } catch (err) {
     next(err);
